@@ -1,20 +1,54 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Tinghor POS — টিনঘর পয়েন্ট অব সেল
 
-# Run and deploy your AI Studio app
+Full-featured inventory and point-of-sale management system for **Tinghor.com** — a tin/corrugated iron sheet business in Bangladesh.
 
-This contains everything you need to run your app locally.
+## Features
 
-View your app in AI Studio: https://ai.studio/apps/drive/1SDO59OIRNLtc6C6lK1UuvwH13bijXiIc
+- **POS** — Sales with product search, quantity, and receipt generation
+- **Inventory** — Stock tracking, low-stock alerts, product management
+- **Purchase** — Supplier orders and purchase history
+- **Ledger** — Customer credit/debit ledger
+- **Sales History** — Complete transaction log with filters
+- **Customers** — Customer profiles and account balances
+- **Suppliers** — Supplier management
+- **Expenses** — Business expense tracking
+- **Reports** — Sales, inventory, and financial reports with charts
+- **Salary Manager** — Employee salary records
+- **Activity Logs** — Full audit trail of all actions
+- **Admin Settings** — Multi-user access, Bengali/English language toggle
 
-## Run Locally
+## Tech Stack
 
-**Prerequisites:**  Node.js
+- **Frontend:** React 19, TypeScript, Tailwind CSS
+- **Charts:** Recharts
+- **Icons:** Lucide React
+- **Database:** Supabase (PostgreSQL)
+- **Build:** Vite
+- **Deploy:** Netlify
 
+## Local Setup
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+1. Clone the repo
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Create `.env.local` with your Supabase credentials:
+   ```
+   VITE_SUPABASE_URL=your_supabase_project_url
+   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+   ```
+4. Run dev server:
+   ```bash
+   npm run dev
+   ```
+
+## Deploy to Netlify
+
+1. Connect this repo to Netlify
+2. Add environment variables in Netlify dashboard:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+3. Build settings are auto-detected from `netlify.toml`:
+   - Build command: `npm run build`
+   - Publish directory: `dist`

@@ -1,5 +1,5 @@
 {
-  "name": "tinghor-final-feb-2---flutrrer-test",
+  "name": "tinghor-pos",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,7 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^1.34.0",
     "@supabase/supabase-js": "^2.103.0",
     "lucide-react": "^0.562.0",
     "react": "^19.2.3",
