@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.tsx$\")",
+      "Bash(wc -l \"S:/Gemini/tinghor final Claude/components\"/*.tsx)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npm install:*)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(npx -y @supabase/mcp-server-supabase@latest --help)",
+      "Bash(npx -y @supabase/mcp-server-supabase@latest --project-ref ofjkrjzqujpvttkygxie --access-token sbp_f7887ad5c20122fb886f09580eb23ae8e71d7013)",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__execute_sql",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:frappe.io)",
+      "WebFetch(domain:docs.erpnext.com)",
+      "WebFetch(domain:www.odoo.com)",
+      "WebFetch(domain:docs.frappe.io)",
+      "WebFetch(domain:idealisconsulting.com)",
+      "WebFetch(domain:wiki.dolibarr.org)",
+      "WebFetch(domain:www.turqosoft.com)",
+      "WebFetch(domain:dev.to)",
+      "WebFetch(domain:www.red-gate.com)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:blog.journalize.io)",
+      "WebFetch(domain:finbyz.tech)",
+      "WebFetch(domain:www.sitepoint.com)",
+      "WebFetch(domain:koronapos.com)",
+      "WebFetch(domain:www.poshighway.com)",
+      "WebFetch(domain:www.freecodecamp.org)",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); print\\(data[0]['text']\\)\")",
+      "Bash(python3 -c ':*)",
+      "Bash(node -e ':*)",
+      "mcp__supabase__apply_migration",
+      "Bash(npx tsc:*)",
+      "Bash(grep -i \"ব্র্যান্ড\\\\|দাম\\\\|মূল্য\\\\|পরিমাণ\\\\|ঢেউটিন\\\\|প্রিমিয়াম\" \"/c/Users/almar/.claude/projects/S--Gemini-tinghor-final-Claude/e1ccc9ef-b767-453a-a382-228f08167284/subagents/\"*.jsonl)"
+    ]
+  }
+}
