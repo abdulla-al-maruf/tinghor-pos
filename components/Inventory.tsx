@@ -104,7 +104,9 @@ const ProductGroupCard = React.memo(({
                            key={s} 
                            onClick={() => {
                               const l = s;
-                              setStockEntry(p => ({...p, length: l, base: l > 12 ? 70 : (l === 7 || l === 10 ? 70 : 72)}));
+                              const variant = group.variants.find(v => v.lengthFeet === l);
+                              const base = variant?.calculationBase || (l > 12 ? 70 : (l === 7 || l === 10 ? 70 : 72));
+                              setStockEntry(p => ({...p, length: l, base}));
                            }}
                            className={`w-8 h-8 rounded text-xs font-bold border transition ${stockEntry.length === s ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
                          >
@@ -117,7 +119,9 @@ const ProductGroupCard = React.memo(({
                         value={stockEntry.length} 
                         onChange={e => {
                            const l = Number(e.target.value);
-                           setStockEntry(p => ({...p, length: l, base: l > 12 ? 70 : (l === 7 || l === 10 ? 70 : 72)}));
+                           const variant = group.variants.find(v => v.lengthFeet === l);
+                           const base = variant?.calculationBase || (l > 12 ? 70 : (l === 7 || l === 10 ? 70 : 72));
+                           setStockEntry(p => ({...p, length: l, base}));
                         }}
                         placeholder=".."
                       />

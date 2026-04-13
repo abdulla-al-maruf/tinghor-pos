@@ -53,7 +53,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, sales, expenses
   
   const collections = useMemo(() => {
     return sales.reduce((sum, s) => {
-      const periodPayments = s.paymentHistory.filter(p => p.date >= start && p.date <= end);
+      const periodPayments = (s.paymentHistory ?? []).filter(p => p.date >= start && p.date <= end);
       return sum + periodPayments.reduce((pSum, p) => pSum + p.amount, 0);
     }, 0);
   }, [sales, start, end]);

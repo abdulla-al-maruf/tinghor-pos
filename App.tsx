@@ -26,6 +26,8 @@ import {
   loadSalaryRecords, saveSalaryRecord,
   loadActivityLogs, saveActivityLog,
   saveStockMovement,
+  savePaymentAllocation,
+  signIn, signOut, onAuthStateChange, loadCurrentUserProfile,
 } from './lib/db';
 import { LayoutDashboard, ShoppingBag, Package, BookOpen, Menu, X, Languages, Home, Users, Wallet, PieChart, LogOut, History, UserCircle, Settings, FileText, CheckCircle, AlertCircle, Info, Lock, Loader2, Building2, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -107,7 +109,7 @@ const App: React.FC = () => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchases, setPurchases] = useState<PurchaseType[]>([]);
 
-  // --- Supabase Data Loading ---
+  // --- Supabase Auth + Data Loading ---
   useEffect(() => {
     async function loadAllData() {
       try {
@@ -144,7 +146,21 @@ const App: React.FC = () => {
         setIsDataLoaded(true);
       }
     }
-    loadAllData();
+
+    // Restore session on page load/refresh — this is what keeps users logged in
+    const { data: { subscription } } = onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const profile = await loadCurrentUserProfile(session.user.id);
+        if (profile) setCurrentUser(profile);
+      } else {
+        setCurrentUser(null);
+      }
+      // Load app data once auth state is known
+      if (!isDataLoaded) loadAllData();
+    });
+
+    return () => subscription.unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // --- Supabase Background Sync (debounced) ---
@@ -170,25 +186,20 @@ const App: React.FC = () => {
     }, 3000);
   }, []);
 
-  const handleLogin = () => {
-    const user = users.find(u => u.email === loginEmail && u.password === loginPass);
-    if (user) {
-      const updatedUser = { ...user, sessions: [...(user.sessions || []), { sessionId: `sess_${Date.now()}`, deviceName: 'Web', loginTime: Date.now(), isTrusted: true }] };
-      setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
-      setCurrentUser(updatedUser);
+  const handleLogin = async () => {
+    const { error } = await signIn(loginEmail, loginPass);
+    if (error) {
+      notify('ইমেইল বা পাসওয়ার্ড ভুল!', 'error');
+    } else {
       setLoginEmail('');
       setLoginPass('');
-      notify('স্বাগতম ' + user.name, 'success');
-    } else {
-      notify('ইমেইল বা পাসওয়ার্ড ভুল!', 'error');
     }
   };
-
-  const handleLogout = useCallback(() => {
+  const handleLogout = useCallback(async () => {
+    await signOut();
     setCurrentUser(null);
     setActiveTab('dashboard');
-    notify('লগআউট সফল হয়েছে', 'info');
-  }, [notify]);
+  }, []);
 
   // Re-pasting handlers for completeness
   const handleCompleteSale = useCallback((sale: Sale) => {
@@ -209,10 +220,15 @@ const App: React.FC = () => {
              }
              return variant;
            });
-           return { ...group, variants: updatedVariants };
+           const updatedGroup = { ...group, variants: updatedVariants };
+           saveProductGroup(updatedGroup).catch(console.error);
+           return updatedGroup;
          }));
        }
-       return { ...prev, nextInvoiceId: prev.nextInvoiceId + 1 };
+       const newSettings = { ...prev, nextInvoiceId: prev.nextInvoiceId + 1 };
+       saveSettings(newSettings).catch(console.error);
+       saveActivityLog({ id: crypto.randomUUID(), userId: currentUser?.id ?? '', userName: currentUser?.name ?? 'Unknown', action: `বিক্রয় INV-${newInvoiceId}`, details: `৳${sale.finalAmount}`, timestamp: Date.now() }).catch(console.error);
+       return newSettings;
     });
     notify('মেমো সেভ হয়েছে', 'success');
   }, [currentUser, notify]);
@@ -238,13 +254,15 @@ const App: React.FC = () => {
               const oldVal = variant.stockPieces * (variant.averageCost || 0);
               const newVal = purchasedItem.quantityPieces * purchasedItem.priceUnit;
               const newTotalStock = variant.stockPieces + purchasedItem.quantityPieces;
-              const newAvg = newTotalStock > 0 ? (oldVal + newVal) / newTotalStock : purchasedItem.priceUnit;
+              const newAvg = newTotalStock > 0 ? Math.round(((oldVal + newVal) / newTotalStock) * 100) / 100 : Math.round(purchasedItem.priceUnit * 100) / 100;
               saveStockMovement({ variantId: variant.id, qtyChange: purchasedItem.quantityPieces, qtyAfter: newTotalStock, costPerUnit: purchasedItem.priceUnit, voucherType: 'purchase', voucherId: finalPurchase.id }).catch(console.error);
               return { ...variant, stockPieces: newTotalStock, averageCost: newAvg };
            }
            return variant;
         });
-        return { ...group, variants: updatedVariants };
+        const updatedGroup = { ...group, variants: updatedVariants };
+        saveProductGroup(updatedGroup).catch(console.error);
+        return updatedGroup;
       }));
       if (purchase.paidAmount > 0) {
          const expEntry = { id: crypto.randomUUID(), reason: `Purchase #${purchase.invoiceId}`, amount: purchase.paidAmount, category: 'purchase' as const, timestamp: Date.now() };
@@ -252,10 +270,16 @@ const App: React.FC = () => {
          saveExpense(expEntry).catch(console.error);
       }
     }
+    if (newSupplier) {
+      saveSupplier({ ...newSupplier, totalPurchase: purchase.finalAmount, totalDue: purchase.dueAmount }).catch(console.error);
+    } else {
+      setSuppliers(prev => { const s = prev.find(x => x.id === supId); if (s) saveSupplier(s).catch(console.error); return prev; });
+    }
+    saveActivityLog({ id: crypto.randomUUID(), userId: '', userName: 'System', action: `ক্রয় PUR-${purchase.invoiceId}`, details: `৳${purchase.finalAmount}`, timestamp: Date.now() }).catch(console.error);
     notify('স্টক আপডেট হয়েছে', 'success');
   }, [notify]);
 
-  const handleUpdateSale = useCallback((updatedSale: Sale) => { setSales(prev => prev.map(s => s.id === updatedSale.id ? updatedSale : s)); saveSale(updatedSale).catch(console.error); notify('আপডেট হয়েছে', 'success'); }, [notify]);
+  const handleUpdateSale = useCallback((updatedSale: Sale) => { setSales(prev => { const oldSale = prev.find(s => s.id === updatedSale.id); if (oldSale && updatedSale.paidAmount > oldSale.paidAmount) { const delta = updatedSale.paidAmount - oldSale.paidAmount; savePaymentAllocation({ invoiceId: updatedSale.id, invoiceType: 'sale', allocatedAmount: delta, receivedByName: 'Collection' }).catch(console.error); } return prev.map(s => s.id === updatedSale.id ? updatedSale : s); }); saveSale(updatedSale).catch(console.error); notify('আপডেট হয়েছে', 'success'); }, [notify]);
   const handleInventoryUpdate = useCallback((newInventory: ProductGroup[]) => { setInventory(newInventory); }, []);
   const handleDeleteSale = useCallback((saleId: string) => { 
       setSales(prevSales => {
@@ -281,21 +305,34 @@ const App: React.FC = () => {
         if (sale.id === saleId) {
            const newItems = [...sale.items];
            const item = newItems[itemIndex];
-           const refundAmount = Math.round((item.subtotal / item.quantityPieces) * returnQty);
+           const refundAmount = returnQty >= item.quantityPieces
+             ? item.subtotal
+             : Math.round(item.subtotal * returnQty / item.quantityPieces);
            if (item.groupId !== 'manual') {
-              setInventory(prevInv => prevInv.map(g => g.id === item.groupId ? { ...g, variants: g.variants.map(v => v.id === item.variantId ? {...v, stockPieces: v.stockPieces + returnQty} : v)} : g));
+              setInventory(prevInv => prevInv.map(g => {
+                if (g.id !== item.groupId) return g;
+                const updatedVariants = g.variants.map(v => v.id === item.variantId ? {...v, stockPieces: v.stockPieces + returnQty} : v);
+                const updatedG = { ...g, variants: updatedVariants };
+                saveProductGroup(updatedG).catch(console.error);
+                const variant = g.variants.find(v => v.id === item.variantId);
+                if (variant) saveStockMovement({ variantId: variant.id, qtyChange: returnQty, qtyAfter: variant.stockPieces + returnQty, costPerUnit: variant.averageCost, voucherType: 'return', voucherId: sale.id }).catch(console.error);
+                return updatedG;
+              }));
            }
            const newItemQty = item.quantityPieces - returnQty;
            if (newItemQty <= 0) newItems.splice(itemIndex, 1);
            else newItems[itemIndex] = { ...item, quantityPieces: newItemQty, subtotal: item.subtotal - refundAmount, formattedQty: `${newItemQty} pcs (Ret ${returnQty})` };
-           return { ...sale, items: newItems, subTotal: sale.subTotal - refundAmount, finalAmount: sale.finalAmount - refundAmount, dueAmount: (sale.finalAmount - refundAmount) - sale.paidAmount, note: (sale.note || '') + ` | Ret: ${returnQty}` };
+           const newFinalAmount = sale.finalAmount - refundAmount;
+           const updatedRetSale = { ...sale, items: newItems, subTotal: sale.subTotal - refundAmount, finalAmount: newFinalAmount, dueAmount: newFinalAmount - sale.paidAmount, note: (sale.note || '') + ` | Ret: ${returnQty}` };
+           saveSale(updatedRetSale).catch(console.error);
+           return updatedRetSale;
         }
         return sale;
      }));
      notify('ফেরত নেওয়া হয়েছে', 'success');
   }, [notify]);
-  const handleStockEntry = useCallback((groupId: string, updatedVariants: any, log: StockLog) => { setInventory(prev => prev.map(g => g.id === groupId ? { ...g, variants: updatedVariants } : g)); setStockLogs(prev => [log, ...prev]); notify('স্টক যোগ হয়েছে', 'success'); }, [notify]);
-  const handleGlobalCustomerUpdate = useCallback((oldName: string, oldPhone: string, newData: any) => { setSales(prev => prev.map(s => (s.customerName === oldName && s.customerPhone === oldPhone) ? { ...s, customerName: newData.name, customerPhone: newData.phone, customerAddress: newData.address || s.customerAddress } : s)); notify('আপডেট হয়েছে', 'success'); }, [notify]);
+  const handleStockEntry = useCallback((groupId: string, updatedVariants: any, log: StockLog) => { setInventory(prev => { const updated = prev.map(g => g.id === groupId ? { ...g, variants: updatedVariants } : g); const updatedG = updated.find(g => g.id === groupId); if (updatedG) saveProductGroup(updatedG).catch(console.error); return updated; }); setStockLogs(prev => [log, ...prev]); notify('স্টক যোগ হয়েছে', 'success'); }, [notify]);
+  const handleGlobalCustomerUpdate = useCallback((oldName: string, oldPhone: string, newData: any) => { setSales(prev => prev.map(s => { if (s.customerName !== oldName || s.customerPhone !== oldPhone) return s; const updated = { ...s, customerName: newData.name, customerPhone: newData.phone, customerAddress: newData.address || s.customerAddress }; saveSale(updated).catch(console.error); return updated; })); notify('আপডেট হয়েছে', 'success'); }, [notify]);
   const handleAddExpense = useCallback((expense: Expense) => { setExpenses(prev => [expense, ...prev]); saveExpense(expense).catch(console.error); notify('খরচ যোগ হয়েছে', 'success'); }, [notify]);
   const handleDeleteExpense = useCallback((id: string) => { setExpenses(prev => prev.filter(e => e.id !== id)); dbDeleteExpense(id).catch(console.error); notify('ডিলিট হয়েছে', 'success'); }, [notify]);
 
@@ -445,9 +482,11 @@ const App: React.FC = () => {
                      employees={employees} 
                      salaryRecords={salaryRecords} 
                      attendance={attendance}
-                     onAddEmployee={(e) => setEmployees(prev => [...prev, e])} 
+                     onAddEmployee={(e) => { setEmployees(prev => [...prev, e]); saveEmployee(e).catch(console.error); }} 
                      onAddRecord={(r) => {
                        setSalaryRecords(prev => [...prev, r]);
+                       saveSalaryRecord(r).catch(console.error);
+                       saveActivityLog({ id: crypto.randomUUID(), userId: '', userName: 'System', action: `বেতন - ${r.employeeName}`, details: `৳${r.amount}`, timestamp: Date.now() }).catch(console.error);
                        handleAddExpense({ id: crypto.randomUUID(), reason: `Salary - ${r.employeeName}`, amount: r.amount, category: 'salary', timestamp: r.date });
                      }}
                      onUpdateAttendance={(r) => {

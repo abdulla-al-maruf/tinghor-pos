@@ -132,10 +132,10 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
           qtyPieces = Math.round(qtyNum * piecesPerBundle);
           finalCost = Math.round(qtyNum * rateNum);
           formattedQty = `${qtyNum} বান`;
-          costPerPiece = rateNum / piecesPerBundle;
+          costPerPiece = Math.round((rateNum / piecesPerBundle) * 100) / 100;
        } else {
           qtyPieces = qtyNum;
-          const costPerOnePiece = rateNum / piecesPerBundle;
+          const costPerOnePiece = Math.round((rateNum / piecesPerBundle) * 100) / 100;
           finalCost = Math.round(qtyNum * costPerOnePiece);
           formattedQty = `${qtyNum} পিস`;
           costPerPiece = costPerOnePiece;
@@ -147,7 +147,7 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
        finalCost = Math.round(totalFeet * rateNum);
        formattedQty = `${qtyPieces} pcs (${totalFeet} ft)`;
        // Store Cost Per Piece for internal logic consistency
-       costPerPiece = targetVariant.lengthFeet * rateNum;
+       costPerPiece = Math.round(targetVariant.lengthFeet * rateNum * 100) / 100;
     } else {
        qtyPieces = qtyNum;
        finalCost = Math.round(qtyPieces * rateNum);

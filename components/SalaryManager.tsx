@@ -323,9 +323,9 @@ export const SalaryManager: React.FC<SalaryManagerProps> = ({ employees, salaryR
                                onChange={(e) => setReportYear(e.target.value)}
                                className="p-2 rounded-lg border border-slate-300 font-bold text-slate-700 text-sm focus:outline-none"
                             >
-                               <option value="2023">2023</option>
-                               <option value="2024">2024</option>
-                               <option value="2025">2025</option>
+                               {Array.from({length: 6}, (_, i) => new Date().getFullYear() - 2 + i).map(y => (
+                                  <option key={y} value={String(y)}>{y}</option>
+                               ))}
                             </select>
                          </div>
                       </div>

@@ -25,10 +25,10 @@ export interface UserSession {
 export interface User {
   id: string;
   name: string;
-  email: string; // Changed from PIN to Email/Pass
-  password: string;
+  email: string;
+  password?: string; // Only used during creation form — never stored in DB
   role: UserRole;
-  sessions: UserSession[]; // Track active logins
+  sessions: UserSession[];
 }
 
 export interface ActivityLog {

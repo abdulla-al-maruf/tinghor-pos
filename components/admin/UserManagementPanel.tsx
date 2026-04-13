@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../../types';
-import { Plus, Trash2, User as UserIcon, Shield, Key, AlertTriangle, Laptop, Smartphone, Lock } from 'lucide-react';
-import { generateId } from '../../lib/utils';
+import { Plus, Trash2, User as UserIcon, Shield, Key, AlertTriangle, Laptop, Smartphone, Lock, Loader2 } from 'lucide-react';
+import { createAuthUser, loadUsers } from '../../lib/db';
 
 interface UserManagementPanelProps {
   users: User[];
@@ -14,13 +14,25 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ users,
   const [selectedUserForDevices, setSelectedUserForDevices] = useState<User | null>(null);
   const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, userId: '', userName: '' });
 
-  const addUser = () => {
+  const [isCreating, setIsCreating] = useState(false);
+
+  const addUser = async () => {
     if (!newUser.name || !newUser.email || !newUser.password) {
       notify('নাম, ইমেইল এবং পাসওয়ার্ড আবশ্যক', 'error'); return;
     }
-    setUsers(prev => [...prev, { id: generateId(), name: newUser.name, email: newUser.email, password: newUser.password, role: newUser.role, sessions: [] }]);
+    setIsCreating(true);
+    const { error } = await createAuthUser(newUser.email, newUser.password, newUser.name, newUser.role);
+    if (error) {
+      notify('ত্রুটি: ' + error, 'error');
+      setIsCreating(false);
+      return;
+    }
+    // Reload users from DB to get the new user with correct ID
+    const updatedUsers = await loadUsers();
+    setUsers(updatedUsers);
     setNewUser({ name: '', email: '', password: '', role: 'manager' });
     notify('নতুন ইউজার তৈরি হয়েছে', 'success');
+    setIsCreating(false);
   };
 
   const handleRevokeSession = (userId: string, sessionId: string) => {
@@ -148,7 +160,9 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ users,
                 <button onClick={() => setNewUser({ ...newUser, role: 'admin' })} className={`flex-1 py-3 rounded-xl font-bold border transition ${newUser.role === 'admin' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-slate-600'}`}>অ্যাডমিন</button>
               </div>
             </div>
-            <button onClick={addUser} className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-slate-900 transition mt-2">অ্যাকাউন্ট সেভ করুন</button>
+            <button onClick={addUser} disabled={isCreating} className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-slate-900 transition mt-2 flex items-center justify-center gap-2 disabled:opacity-60">
+              {isCreating ? <><Loader2 className="w-4 h-4 animate-spin" /> তৈরি হচ্ছে...</> : 'অ্যাকাউন্ট সেভ করুন'}
+            </button>
           </div>
         </div>
       </div>

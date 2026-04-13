@@ -67,14 +67,16 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
 
   // Profit Calculation Logic
   const estimatedProfit = useMemo(() => {
-    const grossProfit = cart.reduce((sum, item) => {
-       // Calculation: (Selling Price - Buying Price) * Qty
-       // buyPriceUnit comes from inventory averageCost
-       const cost = item.buyPriceUnit || 0; 
-       return sum + ((item.priceUnit - cost) * item.quantityPieces);
+    const discount = Number(discountAmount) || 0;
+    const cartGross = cart.reduce((sum, item) => sum + item.subtotal, 0);
+    // Distribute discount proportionally per item by revenue share
+    return cart.reduce((sum, item) => {
+      const cost = item.buyPriceUnit || 0;
+      const itemDiscount = cartGross > 0 ? (item.subtotal / cartGross) * discount : 0;
+      const effectiveRevenue = item.subtotal - itemDiscount;
+      const itemCost = cost * item.quantityPieces;
+      return sum + (effectiveRevenue - itemCost);
     }, 0);
-    // Deduct discount from profit
-    return grossProfit - (Number(discountAmount) || 0);
   }, [cart, discountAmount]);
 
   useEffect(() => {
@@ -141,13 +143,13 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
           qtyPieces = Math.round(qtyNum * piecesPerBundle);
           finalPrice = Math.round(qtyNum * rateNum);
           formattedQty = `${qtyNum} বান`;
-          itemPriceUnit = rateNum / piecesPerBundle;
+          itemPriceUnit = Math.round((rateNum / piecesPerBundle) * 100) / 100;
        } else {
           // Rate is Bundle Rate, Selling Pieces
           qtyPieces = qtyNum;
           finalPrice = Math.round((qtyNum * rateNum) / piecesPerBundle);
           formattedQty = `${qtyNum} পিস`;
-          itemPriceUnit = rateNum / piecesPerBundle;
+          itemPriceUnit = Math.round((rateNum / piecesPerBundle) * 100) / 100;
        }
     } else if (targetGroup.type === 'running_foot') {
        // DHALA Logic: Rate is Per Foot
@@ -156,7 +158,7 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
        finalPrice = Math.round(totalFeet * rateNum); 
        formattedQty = `${qtyPieces} pcs (${totalFeet} ft)`;
        // Store Per Piece Price for internal calculation consistency
-       itemPriceUnit = targetVariant.lengthFeet * rateNum; 
+       itemPriceUnit = Math.round(targetVariant.lengthFeet * rateNum * 100) / 100;
     } else {
        qtyPieces = qtyNum;
        finalPrice = Math.round(qtyPieces * rateNum);

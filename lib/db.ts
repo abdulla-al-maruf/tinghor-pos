@@ -39,19 +39,73 @@ export async function saveSettings(settings: StoreSettings): Promise<void> {
   }).not('id', 'is', null);
 }
 
+// ─── AUTH ─────────────────────────────────────────────────────────────────────
+
+export async function signIn(email: string, password: string) {
+  return supabase.auth.signInWithPassword({ email, password });
+}
+
+export async function signOut() {
+  return supabase.auth.signOut();
+}
+
+export async function getSession() {
+  return supabase.auth.getSession();
+}
+
+export function onAuthStateChange(callback: Parameters<typeof supabase.auth.onAuthStateChange>[0]) {
+  return supabase.auth.onAuthStateChange(callback);
+}
+
+/** Load profile (name, role) for a logged-in user by their auth UID. */
+export async function loadCurrentUserProfile(userId: string): Promise<User | null> {
+  const { data, error } = await supabase.from('profiles').select('id, name, email, role').eq('id', userId).single();
+  if (error || !data) return null;
+  return { id: data.id, name: data.name, email: data.email, role: data.role, sessions: [] };
+}
+
+/**
+ * Create a new auth user from the admin panel.
+ * Uses a temp supabase client with persistSession:false so the current
+ * admin session is NOT replaced by the newly created user's session.
+ */
+export async function createAuthUser(
+  email: string, password: string, name: string, role: string
+): Promise<{ error: string | null }> {
+  const { createClient } = await import('@supabase/supabase-js');
+  const tempClient = createClient(
+    import.meta.env.VITE_SUPABASE_URL as string,
+    import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+    { auth: { persistSession: false, autoRefreshToken: false, storageKey: `tmp_${Date.now()}` } }
+  );
+
+  const { data, error } = await tempClient.auth.signUp({
+    email,
+    password,
+    options: { data: { name, role } },
+  });
+
+  if (error) return { error: error.message };
+  if (!data.user) return { error: 'User creation failed' };
+
+  // Trigger already creates the profile row, but ensure name/role are correct
+  await supabase.from('profiles').upsert({
+    id: data.user.id,
+    name,
+    email,
+    role,
+    updated_at: new Date().toISOString(),
+  });
+
+  return { error: null };
+}
+
 // ─── USERS / PROFILES ────────────────────────────────────────────────────────
 
 export async function loadUsers(): Promise<User[]> {
-  const { data, error } = await supabase.from('profiles').select('*');
+  const { data, error } = await supabase.from('profiles').select('id, name, email, role');
   if (error || !data) return [];
-  return data.map(u => ({
-    id: u.id,
-    name: u.name,
-    email: u.email,
-    password: u.password,
-    role: u.role,
-    sessions: [],
-  }));
+  return data.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, sessions: [] }));
 }
 
 export async function saveUser(user: User): Promise<void> {
@@ -59,7 +113,6 @@ export async function saveUser(user: User): Promise<void> {
     id: user.id,
     name: user.name,
     email: user.email,
-    password: user.password,
     role: user.role,
     updated_at: new Date().toISOString(),
   });
@@ -427,6 +480,24 @@ export async function saveSalaryRecord(record: SalaryRecord): Promise<void> {
     for_year: record.forYear,
     note: record.note ?? '',
     posting_date: new Date(record.date).toISOString().split('T')[0],
+  });
+}
+
+// ─── PAYMENT ALLOCATIONS ─────────────────────────────────────────────────────
+
+export async function savePaymentAllocation(params: {
+  invoiceId: string;
+  invoiceType: 'sale' | 'purchase';
+  allocatedAmount: number;
+  receivedByName?: string;
+}): Promise<void> {
+  await supabase.from('payment_allocations').insert({
+    id: crypto.randomUUID(),
+    invoice_id: params.invoiceId,
+    invoice_type: params.invoiceType,
+    allocated_amount: params.allocatedAmount,
+    received_by_name: params.receivedByName ?? '',
+    payment_date: new Date().toISOString().split('T')[0],
   });
 }
 
