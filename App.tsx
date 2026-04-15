@@ -1,5 +1,6 @@
 
-import React, { useState, useEffect, createContext, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { LanguageContext, ToastContext } from './lib/contexts';
 import { Dashboard } from './components/Dashboard';
 import { Inventory } from './components/Inventory';
 import { POS } from './components/POS';
@@ -18,13 +19,14 @@ import {
   loadSettings, saveSettings,
   loadUsers, saveUsers,
   loadInventory, saveInventory, saveProductGroup,
-  loadSales, saveSale,
+  loadSales, saveSale, deleteSale,
   loadPurchases, savePurchase,
   loadSuppliers, saveSupplier,
   loadExpenses, saveExpense, deleteExpense as dbDeleteExpense,
   loadEmployees, saveEmployee,
   loadSalaryRecords, saveSalaryRecord,
   loadActivityLogs, saveActivityLog,
+  adjustVariantStock,
   saveStockMovement,
   savePaymentAllocation,
   signIn, signOut, onAuthStateChange, loadCurrentUserProfile,
@@ -38,15 +40,6 @@ interface ToastMsg {
   type: ToastType;
   msg: string;
 }
-
-export const LanguageContext = createContext<{
-  lang: Language;
-  t: (key: string) => string;
-}>({ lang: 'bn', t: (k) => k });
-
-export const ToastContext = createContext<{
-  notify: (msg: string, type?: ToastType) => void;
-}>({ notify: () => {} });
 
 // --- Memoized Components ---
 const MemoDashboard = React.memo(Dashboard);
@@ -89,6 +82,7 @@ const App: React.FC = () => {
   const [lang, setLang] = useState<Language>('bn');
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
 
   // --- Auth State ---
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -111,55 +105,87 @@ const App: React.FC = () => {
 
   // --- Supabase Auth + Data Loading ---
   useEffect(() => {
-    async function loadAllData() {
-      try {
-        const [
-          dbSettings, dbUsers, dbInventory, dbSales,
-          dbPurchases, dbSuppliers, dbExpenses,
-          dbEmployees, dbSalaryRecords, dbLogs,
-        ] = await Promise.all([
-          loadSettings(),
-          loadUsers(),
-          loadInventory(),
-          loadSales(),
-          loadPurchases(),
-          loadSuppliers(),
-          loadExpenses(),
-          loadEmployees(),
-          loadSalaryRecords(),
-          loadActivityLogs(),
-        ]);
+    // Guard: prevent duplicate loadAllData calls (StrictMode double-invoke, TOKEN_REFRESHED race)
+    let dataLoadStarted = false;
 
-        if (dbSettings) setSettings(dbSettings);
-        if (dbUsers.length > 0) setUsers(dbUsers);
-        setInventory(dbInventory);
-        setSales(dbSales);
-        setPurchases(dbPurchases);
-        setSuppliers(dbSuppliers);
-        setExpenses(dbExpenses);
-        setEmployees(dbEmployees);
-        setSalaryRecords(dbSalaryRecords);
-        setLogs(dbLogs);
+    async function loadAllData() {
+      if (dataLoadStarted) return;
+      dataLoadStarted = true;
+      const results = await Promise.allSettled([
+        loadSettings(), loadUsers(), loadInventory(), loadSales(),
+        loadPurchases(), loadSuppliers(), loadExpenses(),
+        loadEmployees(), loadSalaryRecords(), loadActivityLogs(),
+      ]);
+      const [
+        settingsRes, usersRes, inventoryRes, salesRes,
+        purchasesRes, suppliersRes, expensesRes,
+        employeesRes, salaryRes, logsRes,
+      ] = results;
+
+      const failures = results.filter(r => r.status === 'rejected');
+      if (failures.length > 0) {
+        console.error('Data load failures:', failures.map(f => (f as PromiseRejectedResult).reason));
+      }
+
+      if (settingsRes.status === 'fulfilled' && settingsRes.value) setSettings(settingsRes.value);
+      if (usersRes.status === 'fulfilled' && usersRes.value.length > 0) setUsers(usersRes.value);
+      if (inventoryRes.status === 'fulfilled') setInventory(inventoryRes.value);
+      if (salesRes.status === 'fulfilled') setSales(salesRes.value);
+      if (purchasesRes.status === 'fulfilled') setPurchases(purchasesRes.value);
+      if (suppliersRes.status === 'fulfilled') setSuppliers(suppliersRes.value);
+      if (expensesRes.status === 'fulfilled') setExpenses(expensesRes.value);
+      if (employeesRes.status === 'fulfilled') setEmployees(employeesRes.value);
+      if (salaryRes.status === 'fulfilled') setSalaryRecords(salaryRes.value);
+      if (logsRes.status === 'fulfilled') setLogs(logsRes.value);
+
+      setIsDataLoaded(true);
+    }
+
+    // Defer DB queries outside the auth callback to avoid Supabase deadlock.
+    // Making supabase.from() queries inside onAuthStateChange blocks because
+    // Supabase is still processing its own auth state at that point.
+    async function tryLoadUser(userId: string) {
+      try {
+        const profile = await loadCurrentUserProfile(userId);
+        if (profile) {
+          setCurrentUser(profile);
+          loadAllData();
+        }
       } catch (e) {
-        console.error('Failed to load data from Supabase:', e);
+        console.error('Auth profile load error:', e);
       } finally {
-        setIsDataLoaded(true);
+        setIsAuthChecked(true);
       }
     }
 
-    // Restore session on page load/refresh — this is what keeps users logged in
-    const { data: { subscription } } = onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        const profile = await loadCurrentUserProfile(session.user.id);
-        if (profile) setCurrentUser(profile);
-      } else {
+    const { data: { subscription } } = onAuthStateChange((event, session) => {
+      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+        if (session?.user) {
+          // setTimeout(0) defers past the auth state lock — prevents deadlock
+          setTimeout(() => tryLoadUser(session.user.id), 0);
+        } else {
+          setIsAuthChecked(true);
+        }
+      } else if (event === 'TOKEN_REFRESHED') {
+        if (session?.user) {
+          setTimeout(() => tryLoadUser(session.user.id), 0);
+        } else {
+          setIsAuthChecked(true);
+        }
+      } else if (event === 'SIGNED_OUT') {
         setCurrentUser(null);
+        setIsDataLoaded(false);
+        dataLoadStarted = false;
+        setIsAuthChecked(true);
+      } else {
+        setIsAuthChecked(true);
       }
-      // Load app data once auth state is known
-      if (!isDataLoaded) loadAllData();
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      dataLoadStarted = false; // Reset for StrictMode re-run
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -170,10 +196,10 @@ const App: React.FC = () => {
     syncTimeout.current[key] = setTimeout(() => fn().catch(console.error), 1500);
   }, []);
 
-  useEffect(() => { if (isDataLoaded) debounceSync('settings', () => saveSettings(settings)); }, [settings, isDataLoaded]);
-  useEffect(() => { if (isDataLoaded) debounceSync('users', () => saveUsers(users)); }, [users, isDataLoaded]);
-  useEffect(() => { if (isDataLoaded) debounceSync('inventory', () => saveInventory(inventory)); }, [inventory, isDataLoaded]);
-  useEffect(() => { if (isDataLoaded) debounceSync('suppliers', () => Promise.all(suppliers.map(saveSupplier)).then()); }, [suppliers, isDataLoaded]);
+  useEffect(() => { if (isDataLoaded) debounceSync('settings', () => saveSettings(settings)); }, [settings, isDataLoaded, debounceSync]);
+  useEffect(() => { if (isDataLoaded) debounceSync('users', () => saveUsers(users)); }, [users, isDataLoaded, debounceSync]);
+  useEffect(() => { if (isDataLoaded) debounceSync('inventory', () => saveInventory(inventory)); }, [inventory, isDataLoaded, debounceSync]);
+  useEffect(() => { if (isDataLoaded) debounceSync('suppliers', () => Promise.all(suppliers.map(saveSupplier)).then(() => {})); }, [suppliers, isDataLoaded, debounceSync]);
 
   // --- Helpers ---
   const t = useCallback((key: string) => translations[key]?.[lang] || key, [lang]);
@@ -212,19 +238,27 @@ const App: React.FC = () => {
          setInventory(prevInv => prevInv.map(group => {
            const relevantItems = sale.items.filter(i => i.groupId === group.id);
            if (relevantItems.length === 0) return group;
-           const updatedVariants = group.variants.map(variant => {
-             const soldItem = relevantItems.find(item => item.variantId === variant.id);
-             if (soldItem) {
-               saveStockMovement({ variantId: variant.id, qtyChange: -soldItem.quantityPieces, qtyAfter: variant.stockPieces - soldItem.quantityPieces, costPerUnit: variant.averageCost, voucherType: 'sale', voucherId: saleWithMeta.id }).catch(console.error);
-               return { ...variant, stockPieces: variant.stockPieces - soldItem.quantityPieces };
-             }
-             return variant;
-           });
-           const updatedGroup = { ...group, variants: updatedVariants };
-           saveProductGroup(updatedGroup).catch(console.error);
-           return updatedGroup;
-         }));
-       }
+            const updatedVariants = group.variants.map(variant => {
+              const soldItem = relevantItems.find(item => item.variantId === variant.id);
+              if (soldItem) {
+                adjustVariantStock({ variantId: variant.id, qtyDelta: -soldItem.quantityPieces, minStock: 0 })
+                  .then((updated) => saveStockMovement({
+                    variantId: variant.id,
+                    qtyChange: -soldItem.quantityPieces,
+                    qtyAfter: updated.stockPieces,
+                    costPerUnit: updated.averageCost,
+                    voucherType: 'sale',
+                    voucherId: saleWithMeta.id,
+                  }))
+                  .catch(console.error);
+                return { ...variant, stockPieces: variant.stockPieces - soldItem.quantityPieces };
+              }
+              return variant;
+            });
+            const updatedGroup = { ...group, variants: updatedVariants };
+            return updatedGroup;
+          }));
+        }
        const newSettings = { ...prev, nextInvoiceId: prev.nextInvoiceId + 1 };
        saveSettings(newSettings).catch(console.error);
        saveActivityLog({ id: crypto.randomUUID(), userId: currentUser?.id ?? '', userName: currentUser?.name ?? 'Unknown', action: `বিক্রয় INV-${newInvoiceId}`, details: `৳${sale.finalAmount}`, timestamp: Date.now() }).catch(console.error);
@@ -251,17 +285,30 @@ const App: React.FC = () => {
         const updatedVariants = group.variants.map(variant => {
            const purchasedItem = relevantItems.find(item => item.variantId === variant.id);
            if (purchasedItem) {
-              const oldVal = variant.stockPieces * (variant.averageCost || 0);
-              const newVal = purchasedItem.quantityPieces * purchasedItem.priceUnit;
-              const newTotalStock = variant.stockPieces + purchasedItem.quantityPieces;
-              const newAvg = newTotalStock > 0 ? Math.round(((oldVal + newVal) / newTotalStock) * 100) / 100 : Math.round(purchasedItem.priceUnit * 100) / 100;
-              saveStockMovement({ variantId: variant.id, qtyChange: purchasedItem.quantityPieces, qtyAfter: newTotalStock, costPerUnit: purchasedItem.priceUnit, voucherType: 'purchase', voucherId: finalPurchase.id }).catch(console.error);
-              return { ...variant, stockPieces: newTotalStock, averageCost: newAvg };
+               const oldVal = variant.stockPieces * (variant.averageCost || 0);
+               const newVal = purchasedItem.quantityPieces * purchasedItem.priceUnit;
+               const newTotalStock = variant.stockPieces + purchasedItem.quantityPieces;
+               const newAvg = newTotalStock > 0 ? Math.round(((oldVal + newVal) / newTotalStock) * 100) / 100 : Math.round(purchasedItem.priceUnit * 100) / 100;
+               adjustVariantStock({
+                 variantId: variant.id,
+                 qtyDelta: purchasedItem.quantityPieces,
+                 incomingCostPerUnit: purchasedItem.priceUnit,
+                 minStock: 0,
+               })
+                 .then((updated) => saveStockMovement({
+                   variantId: variant.id,
+                   qtyChange: purchasedItem.quantityPieces,
+                   qtyAfter: updated.stockPieces,
+                   costPerUnit: purchasedItem.priceUnit,
+                   voucherType: 'purchase',
+                   voucherId: finalPurchase.id,
+                 }))
+                 .catch(console.error);
+               return { ...variant, stockPieces: newTotalStock, averageCost: newAvg };
            }
            return variant;
         });
         const updatedGroup = { ...group, variants: updatedVariants };
-        saveProductGroup(updatedGroup).catch(console.error);
         return updatedGroup;
       }));
       if (purchase.paidAmount > 0) {
@@ -281,11 +328,12 @@ const App: React.FC = () => {
 
   const handleUpdateSale = useCallback((updatedSale: Sale) => { setSales(prev => { const oldSale = prev.find(s => s.id === updatedSale.id); if (oldSale && updatedSale.paidAmount > oldSale.paidAmount) { const delta = updatedSale.paidAmount - oldSale.paidAmount; savePaymentAllocation({ invoiceId: updatedSale.id, invoiceType: 'sale', allocatedAmount: delta, receivedByName: 'Collection' }).catch(console.error); } return prev.map(s => s.id === updatedSale.id ? updatedSale : s); }); saveSale(updatedSale).catch(console.error); notify('আপডেট হয়েছে', 'success'); }, [notify]);
   const handleInventoryUpdate = useCallback((newInventory: ProductGroup[]) => { setInventory(newInventory); }, []);
-  const handleDeleteSale = useCallback((saleId: string) => { 
+  const handleDeleteSale = useCallback((saleId: string) => {
       setSales(prevSales => {
        const sale = prevSales.find(s => s.id === saleId);
        if (!sale) return prevSales;
-       if (sale.items.length > 0 && sale.items[0].groupId !== 'manual') {
+       const hasTrackedItems = sale.items.some(i => i.groupId !== 'manual');
+       if (hasTrackedItems) {
           setInventory(prevInv => prevInv.map(group => {
              const relevantItems = sale.items.filter(i => i.groupId === group.id);
              if (relevantItems.length === 0) return group;
@@ -298,6 +346,7 @@ const App: React.FC = () => {
        }
        return prevSales.filter(s => s.id !== saleId);
     });
+    deleteSale(saleId).catch(console.error);
     notify('ডিলিট হয়েছে', 'success');
   }, [notify]);
   const handleReturnItem = useCallback((saleId: string, itemIndex: number, returnQty: number) => {
@@ -309,16 +358,26 @@ const App: React.FC = () => {
              ? item.subtotal
              : Math.round(item.subtotal * returnQty / item.quantityPieces);
            if (item.groupId !== 'manual') {
-              setInventory(prevInv => prevInv.map(g => {
-                if (g.id !== item.groupId) return g;
-                const updatedVariants = g.variants.map(v => v.id === item.variantId ? {...v, stockPieces: v.stockPieces + returnQty} : v);
-                const updatedG = { ...g, variants: updatedVariants };
-                saveProductGroup(updatedG).catch(console.error);
-                const variant = g.variants.find(v => v.id === item.variantId);
-                if (variant) saveStockMovement({ variantId: variant.id, qtyChange: returnQty, qtyAfter: variant.stockPieces + returnQty, costPerUnit: variant.averageCost, voucherType: 'return', voucherId: sale.id }).catch(console.error);
-                return updatedG;
-              }));
-           }
+               setInventory(prevInv => prevInv.map(g => {
+                 if (g.id !== item.groupId) return g;
+                 const updatedVariants = g.variants.map(v => v.id === item.variantId ? {...v, stockPieces: v.stockPieces + returnQty} : v);
+                 const updatedG = { ...g, variants: updatedVariants };
+                 const variant = g.variants.find(v => v.id === item.variantId);
+                 if (variant) {
+                   adjustVariantStock({ variantId: variant.id, qtyDelta: returnQty, minStock: 0 })
+                     .then((updated) => saveStockMovement({
+                       variantId: variant.id,
+                       qtyChange: returnQty,
+                       qtyAfter: updated.stockPieces,
+                       costPerUnit: updated.averageCost,
+                       voucherType: 'return',
+                       voucherId: sale.id,
+                     }))
+                     .catch(console.error);
+                 }
+                 return updatedG;
+               }));
+            }
            const newItemQty = item.quantityPieces - returnQty;
            if (newItemQty <= 0) newItems.splice(itemIndex, 1);
            else newItems[itemIndex] = { ...item, quantityPieces: newItemQty, subtotal: item.subtotal - refundAmount, formattedQty: `${newItemQty} pcs (Ret ${returnQty})` };
@@ -336,7 +395,11 @@ const App: React.FC = () => {
   const handleAddExpense = useCallback((expense: Expense) => { setExpenses(prev => [expense, ...prev]); saveExpense(expense).catch(console.error); notify('খরচ যোগ হয়েছে', 'success'); }, [notify]);
   const handleDeleteExpense = useCallback((id: string) => { setExpenses(prev => prev.filter(e => e.id !== id)); dbDeleteExpense(id).catch(console.error); notify('ডিলিট হয়েছে', 'success'); }, [notify]);
 
-  if (!isDataLoaded) return <div className="min-h-screen flex items-center justify-center font-bangla"><Loader2 className="w-10 h-10 text-blue-600 animate-spin"/></div>;
+  // Wait for Supabase to check localStorage for existing session (brief, ~50ms)
+  if (!isAuthChecked) return <div className="min-h-screen flex items-center justify-center font-bangla"><Loader2 className="w-10 h-10 text-blue-600 animate-spin"/></div>;
+
+  // Wait for data to load after confirmed login
+  if (currentUser && !isDataLoaded) return <div className="min-h-screen flex items-center justify-center font-bangla"><Loader2 className="w-10 h-10 text-blue-600 animate-spin"/></div>;
 
   if (!currentUser) {
     return (
@@ -426,7 +489,7 @@ const App: React.FC = () => {
           <div className="absolute bottom-0 w-full border-t border-slate-100 bg-white p-3">
              {!isSidebarCollapsed ? (
                 <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl mb-2">
-                   <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs">{currentUser.name[0]}</div>
+                   <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs">{currentUser.name?.[0] ?? '?'}</div>
                    <div className="flex-1 overflow-hidden">
                       <p className="text-xs font-bold text-slate-700 truncate">{currentUser.name}</p>
                       <p className="text-[10px] text-slate-400 capitalize">{currentUser.role}</p>

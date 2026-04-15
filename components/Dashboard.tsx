@@ -3,7 +3,7 @@ import React, { useContext, useState, useMemo } from 'react';
 import { ProductGroup, Sale, Expense } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Calendar, Users, Package, ArrowRight, Filter } from 'lucide-react';
-import { LanguageContext } from '../App';
+import { LanguageContext } from '../lib/contexts';
 
 interface DashboardProps {
   inventory: ProductGroup[];
@@ -34,9 +34,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, sales, expenses
     } else if (timeRange === 'this_week') {
       s.setDate(now.getDate() - 7);
       s.setHours(0,0,0,0);
+      e.setHours(23,59,59,999);
     } else if (timeRange === 'this_month') {
       s.setDate(1);
       s.setHours(0,0,0,0);
+      e.setHours(23,59,59,999);
     } else {
       return { start: 0, end: 9999999999999 };
     }

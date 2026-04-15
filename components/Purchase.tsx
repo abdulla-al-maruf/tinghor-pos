@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { ProductGroup, ProductVariant, CartItem, Purchase as PurchaseType, StoreSettings, Supplier } from '../types';
 import { ShoppingCart, CheckCircle, Trash, Layers, Tag, Calculator, User, FileText, Plus } from 'lucide-react';
-import { ToastContext } from '../App';
+import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
 
 interface PurchaseProps {

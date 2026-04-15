@@ -1,7 +1,7 @@
 import React, { useState, useContext, useMemo } from 'react';
 import { Sale, ProductGroup, StoreSettings } from '../types';
 import { Search, Calendar, FileText } from 'lucide-react';
-import { ToastContext } from '../App';
+import { ToastContext } from '../lib/contexts';
 import { ReturnModal, ReturnModalState } from './sales/ReturnModal';
 import { DeleteModal } from './sales/DeleteModal';
 import { EditSaleModal } from './sales/EditSaleModal';

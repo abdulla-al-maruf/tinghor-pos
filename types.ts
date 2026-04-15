@@ -26,7 +26,6 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  password?: string; // Only used during creation form — never stored in DB
   role: UserRole;
   sessions: UserSession[];
 }

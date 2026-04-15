@@ -2,7 +2,7 @@
 import React, { useState, useContext, useEffect, useMemo } from 'react';
 import { ProductGroup, StoreSettings, CalculationMode, StockLog, ProductVariant, User } from '../types';
 import { Plus, Trash2, ChevronDown, ChevronUp, Package, Search, Save, Eye, EyeOff } from 'lucide-react';
-import { ToastContext } from '../App';
+import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
 
 interface InventoryProps {

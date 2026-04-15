@@ -39,9 +39,14 @@ Full-featured inventory and point-of-sale management system for **Tinghor.com** 
    VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
    ```
 4. Run dev server:
-   ```bash
-   npm run dev
-   ```
+    ```bash
+    npm run dev
+    ```
+
+## Security Bootstrap (Phase 1)
+
+Run `supabase/sql/phase1_security.sql` in Supabase SQL Editor after first setup.
+This enables RLS, creates baseline authenticated policies, and adds a non-negative stock constraint.
 
 ## Deploy to Netlify
 

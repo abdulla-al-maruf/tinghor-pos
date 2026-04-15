@@ -1,7 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { StoreSettings, User } from '../types';
 import { Settings, Shield, Hash } from 'lucide-react';
-import { ToastContext } from '../App';
+import { ToastContext } from '../lib/contexts';
 import { CategoryPanel } from './admin/CategoryPanel';
 import { UserManagementPanel } from './admin/UserManagementPanel';
 import { SystemPanel } from './admin/SystemPanel';

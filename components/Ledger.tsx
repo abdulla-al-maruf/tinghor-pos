@@ -92,7 +92,7 @@ export const Ledger: React.FC<LedgerProps> = ({ sales, onUpdateSale, onReturnIte
     if (!selectedSaleId || !paymentAmount) return;
     
     const amount = Number(paymentAmount);
-    if (amount <= 0) return;
+    if (isNaN(amount) || amount <= 0) return;
 
     const sale = sales.find(s => s.id === selectedSaleId);
     if (!sale) return;
@@ -186,6 +186,7 @@ export const Ledger: React.FC<LedgerProps> = ({ sales, onUpdateSale, onReturnIte
   };
 
   const openReturnModal = (sale: Sale, itemIndex: number) => {
+    if (itemIndex < 0 || itemIndex >= sale.items.length) return;
     const item = sale.items[itemIndex];
     setReturnModal({
       isOpen: true,

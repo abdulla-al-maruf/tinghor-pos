@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { Expense } from '../types';
 import { Wallet, Plus, Trash2, TrendingDown, Calendar } from 'lucide-react';
+import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
 
 interface ExpensesProps {
@@ -10,6 +11,7 @@ interface ExpensesProps {
 }
 
 export const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDeleteExpense }) => {
+  const { notify } = useContext(ToastContext);
   const [newExpense, setNewExpense] = useState({
     reason: '',
     amount: '',
@@ -17,15 +19,23 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDe
   });
   
   // Date Filter State
-  const [filterDate, setFilterDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [filterDate, setFilterDate] = useState<string>(new Date().toLocaleDateString('en-CA'));
   const [viewAll, setViewAll] = useState(false);
 
   const handleAdd = () => {
-    if (!newExpense.reason || !newExpense.amount) return;
+    if (!newExpense.reason || !newExpense.amount) {
+      notify('খরচের বিবরণ এবং পরিমাণ লিখুন', 'error');
+      return;
+    }
+    const parsedAmount = Number(newExpense.amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      notify('সঠিক পরিমাণ লিখুন', 'error');
+      return;
+    }
     const expense: Expense = {
       id: generateId(),
       reason: newExpense.reason,
-      amount: Number(newExpense.amount),
+      amount: parsedAmount,
       category: newExpense.category,
       timestamp: Date.now() // Uses current time for new entry
     };
@@ -38,13 +48,14 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDe
     food: 'নাস্তা / আপ্যায়ন',
     utility: 'বিল (বিদ্যুৎ/নেট)',
     salary: 'লেবার / বেতন',
-    other: 'অন্যান্য'
+    other: 'অন্যান্য',
+    purchase: 'ক্রয় পেমেন্ট'
   };
 
   // Filter Logic
   const filteredExpenses = expenses.filter(e => {
     if (viewAll) return true;
-    const expenseDate = new Date(e.timestamp).toISOString().split('T')[0];
+    const expenseDate = new Date(e.timestamp).toLocaleDateString('en-CA');
     return expenseDate === filterDate;
   });
 
@@ -80,7 +91,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDe
                       <select 
                         className={inputStyle}
                         value={newExpense.category}
-                        onChange={e => setNewExpense({...newExpense, category: e.target.value as any})}
+                        onChange={e => setNewExpense({...newExpense, category: e.target.value as Expense['category']})}
                       >
                          {Object.entries(categories).map(([key, label]) => (
                             <option key={key} value={key}>{label}</option>
