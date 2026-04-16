@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Employee, SalaryRecord, User } from '../types';
+import { Employee, SalaryRecord, User, Attendance } from '../types';
 import { User as UserIcon, Plus, Wallet, CheckCircle, Clock, Trash2, XCircle, CalendarCheck, Calendar as CalIcon, FileText, ChevronDown, ChevronUp, AlertCircle, ArrowLeft, ArrowRight } from 'lucide-react';
 import { generateId } from '../lib/utils';
 
@@ -10,8 +10,8 @@ interface SalaryManagerProps {
   onAddEmployee: (emp: Employee) => void;
   onAddRecord: (rec: SalaryRecord) => void;
   currentUser: User;
-  onUpdateAttendance: (rec: any) => void;
-  attendance: any[];
+  onUpdateAttendance: (rec: Attendance) => void;
+  attendance: Attendance[];
   onUpdateEmployee?: (emp: Employee) => void;
   onDeleteEmployee?: (id: string) => void;
 }

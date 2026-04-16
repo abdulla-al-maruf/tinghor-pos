@@ -1,9 +1,10 @@
-
+﻿
 import React, { useState, useEffect, useContext } from 'react';
 import { ProductGroup, ProductVariant, CartItem, Purchase as PurchaseType, StoreSettings, Supplier } from '../types';
 import { ShoppingCart, CheckCircle, Trash, Layers, Tag, Calculator, User, FileText, Plus } from 'lucide-react';
 import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
+import { calculateLineItem, makeCartItem } from '../lib/pricing';
 
 interface PurchaseProps {
   inventory: ProductGroup[];
@@ -117,61 +118,25 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
 
     if (!targetGroup || !targetVariant) { notify('দয়া করে সব অপশন সিলেক্ট করুন', 'error'); return; }
 
-    let qtyPieces = 0;
-    let finalCost = 0;
-    let formattedQty = '';
-    let costPerPiece = 0;
+    // Use centralized pricing calculation (lib/pricing.ts)
+    const calc = calculateLineItem({
+      groupType: targetGroup.type,
+      variant: targetVariant,
+      quantity: qtyNum,
+      rate: rateNum,
+      unitMode,
+    });
 
-    // Logic Sync with POS
-    if (targetGroup.type === 'tin_bundle') {
-       const base = targetVariant.calculationBase || 72;
-       const length = targetVariant.lengthFeet;
-       const piecesPerBundle = base / length; 
-       
-       if (unitMode === 'bundle') {
-          qtyPieces = Math.round(qtyNum * piecesPerBundle);
-          finalCost = Math.round(qtyNum * rateNum);
-          formattedQty = `${qtyNum} বান`;
-          costPerPiece = Math.round((rateNum / piecesPerBundle) * 100) / 100;
-       } else {
-          qtyPieces = qtyNum;
-          const costPerOnePiece = Math.round((rateNum / piecesPerBundle) * 100) / 100;
-          finalCost = Math.round(qtyNum * costPerOnePiece);
-          formattedQty = `${qtyNum} পিস`;
-          costPerPiece = costPerOnePiece;
-       }
-    } else if (targetGroup.type === 'running_foot') {
-       // DHALA: Input Rate is PER FOOT
-       qtyPieces = qtyNum;
-       const totalFeet = qtyPieces * targetVariant.lengthFeet;
-       finalCost = Math.round(totalFeet * rateNum);
-       formattedQty = `${qtyPieces} pcs (${totalFeet} ft)`;
-       // Store Cost Per Piece for internal logic consistency
-       costPerPiece = Math.round(targetVariant.lengthFeet * rateNum * 100) / 100;
-    } else {
-       qtyPieces = qtyNum;
-       finalCost = Math.round(qtyPieces * rateNum);
-       formattedQty = `${qtyPieces} pcs`;
-       costPerPiece = rateNum;
-    }
-
-    const thicknessStr = targetGroup.thickness && targetGroup.thickness !== 'N/A' && targetGroup.thickness !== 'Standard' ? targetGroup.thickness : '';
-    const colorStr = targetGroup.color && targetGroup.color !== 'N/A' ? targetGroup.color : '';
-    const itemName = `${targetGroup.productType} | ${targetGroup.brand} | ${thicknessStr} ${colorStr} | ${targetVariant.lengthFeet}'`.replace(/\s+/g, ' ').trim();
-
-    setCart([...cart, {
+    const cartItem = makeCartItem({
       groupId: targetGroup.id,
       variantId: targetVariant.id,
-      name: itemName,
-      lengthFeet: targetVariant.lengthFeet,
-      calculationBase: targetVariant.calculationBase,
-      quantityPieces: qtyPieces,
-      subtotal: finalCost,
-      unitType: targetGroup.type === 'tin_bundle' ? unitMode : 'piece',
-      formattedQty: formattedQty,
-      priceUnit: costPerPiece,
-      buyPriceUnit: costPerPiece
-    }]);
+      group: targetGroup,
+      variant: targetVariant,
+      calc,
+      buyPriceUnit: calc.pricePerUnit,
+    });
+
+    setCart([...cart, cartItem]);
 
     setQuantity('');
     notify('ক্রয় তালিকায় যোগ হয়েছে', 'success');

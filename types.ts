@@ -88,11 +88,13 @@ export interface ProductGroup {
 
 export interface ProductVariant {
   id: string;
-  lengthFeet: number; 
-  calculationBase?: number; 
+  lengthFeet: number;
+  calculationBase?: number;
   stockPieces: number;
-  averageCost: number; 
-  sellingPrice?: number; 
+  reservedQty: number;
+  avgCostPrice: number;
+  averageCost: number;
+  sellingPrice?: number;
 }
 
 export interface StockLog {
@@ -170,11 +172,13 @@ export interface Expense {
   addedBy?: string;
 }
 
-export interface AiInsight {
-  type: 'stock' | 'market';
-  title: string;
-  content: string;
-  sources?: { title: string; uri: string }[];
+export interface Attendance {
+  id: string;
+  employeeId: string;
+  date: string; // YYYY-MM-DD
+  status: 'present' | 'absent' | 'half_day' | 'leave' | 'late';
+  note?: string;
+  timestamp?: number;
 }
 
 export type Language = 'bn' | 'en';

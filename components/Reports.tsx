@@ -14,11 +14,12 @@ export const Reports: React.FC<ReportsProps> = ({ sales, expenses }) => {
   const totalRevenue = sales.reduce((sum, s) => sum + s.finalAmount, 0);
 
   // Total COGS (Cost of Goods Sold)
-  // Logic: Sum of (Item Quantity * Item Cost Price stored at sale time)
+  // Logic: Sum of (Item Quantity * cost_price_snapshot from sale_items)
+  // cost_price_snapshot = avg_cost_price at the moment of sale (weighted average)
   const totalCOGS = sales.reduce((saleSum, sale) => {
     const saleCost = sale.items.reduce((itemSum, item) => {
-      // Fallback: if buyPriceUnit is missing (old data), assume 0 (which inflates profit, but safe for crash)
-      const cost = item.buyPriceUnit || 0; 
+      // Prefer cost_price_snapshot (saved at sale time), fallback to buyPriceUnit for old data
+      const cost = (item as any).costPriceSnapshot ?? item.buyPriceUnit ?? 0;
       return itemSum + (cost * item.quantityPieces);
     }, 0);
     return saleSum + saleCost;
@@ -84,11 +85,12 @@ export const Reports: React.FC<ReportsProps> = ({ sales, expenses }) => {
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm font-medium text-slate-700">
                    {[...sales].sort((a,b) => b.timestamp - a.timestamp).map(sale => {
-                      // Calculate individual sale metrics
-                      const saleCost = sale.items.reduce((sum, item) => sum + ((item.buyPriceUnit||0) * item.quantityPieces), 0);
-                      const saleProfit = sale.finalAmount - saleCost; // Final Amount already has discount deducted?
-                      // Wait: finalAmount = subTotal - discount.
-                      // So Profit = (SubTotal - Discount) - Cost. Correct.
+                      // Calculate individual sale metrics using cost_price_snapshot
+                      const saleCost = sale.items.reduce((sum, item) => {
+                        const cost = (item as any).costPriceSnapshot ?? item.buyPriceUnit ?? 0;
+                        return sum + (cost * item.quantityPieces);
+                      }, 0);
+                      const saleProfit = sale.finalAmount - saleCost;
                       
                       return (
                          <tr key={sale.id} className="hover:bg-slate-50 transition">

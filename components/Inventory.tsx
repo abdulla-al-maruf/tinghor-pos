@@ -4,6 +4,7 @@ import { ProductGroup, StoreSettings, CalculationMode, StockLog, ProductVariant,
 import { Plus, Trash2, ChevronDown, ChevronUp, Package, Search, Save, Eye, EyeOff } from 'lucide-react';
 import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
+import { calculateStockEntry, recalcAvgCost } from '../lib/pricing';
 
 interface InventoryProps {
   inventory: ProductGroup[];
@@ -16,15 +17,32 @@ interface InventoryProps {
 }
 
 // --- Memoized Individual Group Card ---
-const ProductGroupCard = React.memo(({ 
-  group, 
-  isExpanded, 
-  onToggleExpand, 
-  onDeleteGroup, 
-  onStockUpdate, 
-  inputStyle 
-}: any) => {
-  const [stockEntry, setStockEntry] = useState({
+interface ProductGroupCardProps {
+  group: ProductGroup;
+  isExpanded: boolean;
+  onToggleExpand: (id: string | null) => void;
+  onDeleteGroup: (group: ProductGroup) => void;
+  onStockUpdate: (groupId: string, groupType: CalculationMode, stockEntry: StockEntry) => void;
+  inputStyle: string;
+}
+
+interface StockEntry {
+  length: number;
+  base: number;
+  buyPrice: number;
+  qtyInput: string;
+  qtyMode: 'bundle' | 'piece';
+}
+
+const ProductGroupCard = React.memo(({
+  group,
+  isExpanded,
+  onToggleExpand,
+  onDeleteGroup,
+  onStockUpdate,
+  inputStyle
+}: ProductGroupCardProps) => {
+  const [stockEntry, setStockEntry] = useState<StockEntry>({
     length: 6,
     base: 72,
     buyPrice: 0, 
@@ -183,14 +201,19 @@ const ProductGroupCard = React.memo(({
                 </tr>
               </thead>
               <tbody className="text-slate-700 text-sm divide-y divide-slate-50">
-                {group.variants.map((v: any) => (
+                {group.variants.map((v: ProductVariant) => (
                   <tr key={v.id} className="hover:bg-blue-50/50 transition">
                     <td className="p-3 font-bold">{v.lengthFeet}'</td>
                     {group.type === 'tin_bundle' && <td className="p-3 text-slate-400 text-xs">{v.calculationBase}</td>}
                     <td className="p-3 text-center">
-                       <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-bold text-xs">{v.stockPieces}</span>
+                       <span className={`px-2 py-0.5 rounded font-bold text-xs ${v.stockPieces < 0 ? 'bg-danger-50 text-danger-600' : 'bg-blue-50 text-blue-700'}`}>{v.stockPieces}</span>
+                       {(v.reservedQty ?? 0) > 0 && (
+                         <span className="block text-[10px] text-warning-600 font-semibold">
+                           Available: {v.stockPieces - (v.reservedQty ?? 0)}
+                         </span>
+                       )}
                     </td>
-                    {group.type === 'tin_bundle' ? <td className="p-3 text-center text-slate-500 text-xs">{getBundleDisplay(group, v)}</td> : group.type === 'tin_bundle' ? null : <td className="p-3 text-center">-</td>}
+                     {group.type === 'tin_bundle' ? <td className="p-3 text-center text-slate-500 text-xs">{getBundleDisplay(group, v)}</td> : <td className="p-3 text-center">-</td>}
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         {showCost[v.id] ? <span className="font-mono font-bold text-xs">৳{(v.averageCost || 0).toFixed(2)}</span> : <span className="text-slate-300 text-[10px]">Hidden</span>}
@@ -265,37 +288,25 @@ export const Inventory: React.FC<InventoryProps> = ({ inventory, setInventory, s
     notify("নতুন ক্যাটাগরি তৈরি হয়েছে", "success");
   };
 
-  const handleStockUpdate = (groupId: string, groupType: CalculationMode, stockEntry: any) => {
+  const handleStockUpdate = (groupId: string, groupType: CalculationMode, stockEntry: StockEntry) => {
     const qty = Number(stockEntry.qtyInput);
     const incomingRate = Number(stockEntry.buyPrice);
 
     if (!qty) { notify("পরিমাণ দেওয়া আবশ্যক", "error"); return; }
     
-    let piecesToAdd = 0;
     const { base, length } = stockEntry;
     
-    // --- COST CALCULATION (Synced) ---
-    let incomingCostPerPiece = 0;
+    // Use centralized stock entry calculation (lib/pricing.ts)
+    const entryCalc = calculateStockEntry({
+      groupType,
+      quantity: qty,
+      rate: incomingRate,
+      length,
+      base,
+      qtyMode: stockEntry.qtyMode,
+    });
 
-    if (groupType === 'tin_bundle') {
-       const piecesPerBundle = base / length;
-       if (stockEntry.qtyMode === 'bundle') {
-         piecesToAdd = Math.round((qty * base) / length);
-         incomingCostPerPiece = incomingRate / piecesPerBundle;
-       } else {
-         piecesToAdd = qty;
-         incomingCostPerPiece = incomingRate / piecesPerBundle;
-       }
-    } else if (groupType === 'running_foot') {
-       // DHALA LOGIC: User inputs Qty (Pieces) and Cost Per Foot.
-       // We calculate cost per piece = length * cost_per_foot
-       piecesToAdd = qty;
-       incomingCostPerPiece = incomingRate * length;
-    } else {
-       // Fixed Piece (Screw, etc)
-       piecesToAdd = qty; 
-       incomingCostPerPiece = incomingRate;
-    }
+    const { piecesToAdd, costPerPiece: incomingCostPerPiece } = entryCalc;
 
     const group = inventory.find(g => g.id === groupId);
     if (!group) return;
@@ -307,16 +318,19 @@ export const Inventory: React.FC<InventoryProps> = ({ inventory, setInventory, s
       const currentStock = updatedVariants[existingIndex].stockPieces;
       const currentAvgCost = updatedVariants[existingIndex].averageCost || 0;
       
-      const totalCurrentValue = currentStock * currentAvgCost;
-      const totalIncomingValue = piecesToAdd * incomingCostPerPiece;
-      
-      const newTotalStock = currentStock + piecesToAdd;
-      const newAvgCost = newTotalStock > 0 ? (totalCurrentValue + totalIncomingValue) / newTotalStock : incomingCostPerPiece;
+      // Use centralized weighted average cost calculation (lib/pricing.ts)
+      const avgResult = recalcAvgCost({
+        currentStock,
+        currentAvgCost,
+        incomingQty: piecesToAdd,
+        incomingCostPerUnit: incomingCostPerPiece,
+      });
 
-      updatedVariants[existingIndex] = {
+       updatedVariants[existingIndex] = {
         ...updatedVariants[existingIndex],
-        stockPieces: newTotalStock,
-        averageCost: newAvgCost, 
+        stockPieces: avgResult.newTotalStock,
+        averageCost: avgResult.newAvgCost,
+        avgCostPrice: avgResult.newAvgCost,
         calculationBase: groupType === 'tin_bundle' ? base : undefined
       };
     } else {
@@ -325,7 +339,10 @@ export const Inventory: React.FC<InventoryProps> = ({ inventory, setInventory, s
         lengthFeet: length,
         calculationBase: groupType === 'tin_bundle' ? base : undefined,
         stockPieces: piecesToAdd,
-        averageCost: incomingCostPerPiece
+        averageCost: incomingCostPerPiece,
+        avgCostPrice: incomingCostPerPiece,
+        reservedQty: 0,
+        sellingPrice: undefined
       });
     }
     updatedVariants.sort((a, b) => a.lengthFeet - b.lengthFeet);

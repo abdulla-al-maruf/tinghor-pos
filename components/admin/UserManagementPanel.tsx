@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../../types';
 import { Plus, Trash2, User as UserIcon, Shield, Key, AlertTriangle, Laptop, Smartphone, Lock, Loader2 } from 'lucide-react';
-import { createAuthUser, loadUsers } from '../../lib/db';
+import { createAuthUser, loadUsers, deleteUser } from '../../lib/db';
 
 interface UserManagementPanelProps {
   users: User[];
@@ -15,6 +15,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ users,
   const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, userId: '', userName: '' });
 
   const [isCreating, setIsCreating] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const addUser = async () => {
     if (!newUser.name || !newUser.email || !newUser.password) {
@@ -48,10 +49,20 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ users,
     notify('ডিভাইস স্ট্যাটাস আপডেট হয়েছে', 'success');
   };
 
-  const executeDelete = () => {
-    setUsers(prev => prev.filter(u => u.id !== confirmDelete.userId));
-    notify(`ইউজার ${confirmDelete.userName} ডিলিট করা হয়েছে`, 'success');
-    setConfirmDelete({ isOpen: false, userId: '', userName: '' });
+  const executeDelete = async () => {
+    if (!confirmDelete.userId || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      await deleteUser(confirmDelete.userId);
+      setUsers(prev => prev.filter(u => u.id !== confirmDelete.userId));
+      notify(`ইউজার ${confirmDelete.userName} ডিলিট করা হয়েছে`, 'success');
+      setConfirmDelete({ isOpen: false, userId: '', userName: '' });
+    } catch (err) {
+      notify('ইউজার ডিলিট ব্যর্থ হয়েছে', 'error');
+      console.error('Delete user error:', err);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -68,7 +79,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ users,
             </p>
             <div className="flex gap-3">
               <button onClick={() => setConfirmDelete({ isOpen: false, userId: '', userName: '' })} className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold">বাতিল</button>
-              <button onClick={executeDelete} className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold">ডিলিট করুন</button>
+              <button onClick={executeDelete} disabled={isDeleting} className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold disabled:opacity-60">{isDeleting ? "ডিলিট হচ্ছে..." : "ডিলিট করুন"}</button>
             </div>
           </div>
         </div>

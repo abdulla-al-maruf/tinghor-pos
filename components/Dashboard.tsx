@@ -49,10 +49,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, sales, expenses
   const filteredSales = useMemo(() => {
     return sales.filter(s => s.timestamp >= start && s.timestamp <= end);
   }, [sales, start, end]);
-  
+
   // Calculate Totals based on filtered sales (Memoized)
   const revenue = useMemo(() => filteredSales.reduce((sum, s) => sum + s.finalAmount, 0), [filteredSales]);
-  
+
   const collections = useMemo(() => {
     return sales.reduce((sum, s) => {
       const periodPayments = (s.paymentHistory ?? []).filter(p => p.date >= start && p.date <= end);
@@ -76,6 +76,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, sales, expenses
      return inventory.reduce((sum, g) => sum + g.variants.reduce((vSum, v) => vSum + v.stockPieces, 0), 0);
   }, [inventory]);
 
+  const totalReserved = useMemo(() => {
+     return inventory.reduce((sum, g) => sum + g.variants.reduce((vSum, v) => vSum + (v.reservedQty ?? 0), 0), 0);
+  }, [inventory]);
+
+  const totalAvailable = totalStock - totalReserved;
+
   const timeLabels: Record<TimeRange, string> = {
     today: 'আজকের',
     yesterday: 'গতকালের',
@@ -86,7 +92,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, sales, expenses
 
   return (
     <div className="space-y-6 animate-fade-in font-bangla">
-      
+
       {/* Date Filter Header */}
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
          <div className="flex items-center gap-2">
@@ -94,11 +100,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, sales, expenses
                <Calendar className="w-6 h-6" />
             </div>
             <div>
-               <h2 className="text-xl font-bold text-slate-800">বিক্রয় সারাংশ</h2>
+               <h2 className="text-xl font-bold text-slate-800">বিক্রয় সারাংশ</h2>
                <p className="text-xs text-slate-500 font-bold">{timeLabels[timeRange]} রিপোর্ট দেখছেন</p>
             </div>
          </div>
-         
+
          <div className="flex bg-slate-100 p-1 rounded-xl">
             {(['today', 'yesterday', 'this_week', 'this_month', 'all_time'] as TimeRange[]).map(range => (
                <button
@@ -116,7 +122,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, sales, expenses
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
          <div className="bg-indigo-600 p-6 rounded-2xl shadow-lg shadow-indigo-200 text-white relative overflow-hidden">
             <div className="absolute -right-6 -top-6 bg-white/10 w-32 h-32 rounded-full blur-2xl"></div>
-            <p className="font-bold text-indigo-100 text-sm uppercase mb-1">মোট বিক্রি (ইনভয়েস)</p>
+            <p className="font-bold text-indigo-100 text-sm uppercase mb-1">মোট বিক্রি (ইনভয়েস)</p>
             <h3 className="text-4xl font-bold">৳{revenue.toLocaleString()}</h3>
             <div className="mt-4 flex items-center gap-2 text-indigo-200 text-xs font-bold bg-indigo-700/50 inline-flex px-3 py-1 rounded-lg">
                <Package className="w-4 h-4" /> {filteredSales.length} টি অর্ডার
@@ -126,7 +132,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, sales, expenses
             <div className="absolute -right-6 -top-6 bg-white/10 w-32 h-32 rounded-full blur-2xl"></div>
             <p className="font-bold text-emerald-100 text-sm uppercase mb-1">ক্যাশ কালেকশন (জমা)</p>
             <h3 className="text-4xl font-bold">৳{collections.toLocaleString()}</h3>
-            <p className="text-xs text-emerald-100 mt-2 opacity-80">এই সময়ের মধ্যে যত টাকা ক্যাশ এসেছে</p>
+            <p className="text-xs text-emerald-100 mt-2 opacity-80">এই সময়ের মধ্যে যত টাকা ক্যাশ এসেছে</p>
          </div>
          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
             <p className="font-bold text-slate-400 text-sm uppercase mb-1">বাকি (Due Generated)</p>
@@ -138,7 +144,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, sales, expenses
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-         
+
          {/* Customer List (Based on Filter) */}
          <div className="md:col-span-7 space-y-4">
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[500px]">
@@ -185,7 +191,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, sales, expenses
                            <tr>
                               <td colSpan={4} className="p-10 text-center text-slate-400">
                                  <Filter className="w-10 h-10 mx-auto mb-2 opacity-20" />
-                                 এই সময়ের মধ্যে কোন বিক্রি নেই
+                                 এই সময়ের মধ্যে কোন বিক্রি নেই
                               </td>
                            </tr>
                         )}
@@ -211,7 +217,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, sales, expenses
                   </ResponsiveContainer>
                </div>
             </div>
-            
+
             <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-lg">
                <div className="flex items-center gap-3 mb-4">
                   <Package className="w-8 h-8 text-emerald-400" />
@@ -220,10 +226,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, sales, expenses
                      <h3 className="text-3xl font-bold">{totalStock} <span className="text-lg font-normal text-slate-400">পিস</span></h3>
                   </div>
                </div>
-               <div className="h-1 bg-slate-700 rounded-full w-full mb-2">
-                  <div className="h-1 bg-emerald-500 rounded-full" style={{width: '70%'}}></div>
+               <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className="bg-white/5 rounded-lg p-3 text-center">
+                     <p className="text-xs text-slate-400">ফিজিক্যাল স্টক</p>
+                     <p className="text-xl font-bold">{totalStock}</p>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-3 text-center">
+                     <p className="text-xs text-slate-400">রিজার্ভড</p>
+                     <p className="text-xl font-bold text-amber-400">{totalReserved}</p>
+                  </div>
                </div>
-               <p className="text-xs text-slate-400">স্টক আপডেট রিয়েল-টাইম</p>
+               <div className="bg-emerald-500/20 rounded-lg p-3 text-center border border-emerald-500/30">
+                  <p className="text-xs text-emerald-300">উপলব্ধ স্টক (Available)</p>
+                  <p className="text-2xl font-bold text-emerald-400">{totalAvailable}</p>
+               </div>
+               <p className="text-xs text-slate-400 mt-2">স্টক আপডেট রিয়েল-টাইম</p>
             </div>
          </div>
       </div>
