@@ -4,6 +4,7 @@ import { ProductGroup, ProductVariant, CartItem, Sale, StoreSettings } from '../
 import { ShoppingCart, CheckCircle, Trash, Layers, Tag, Calculator, User, Phone, Truck, FileText, MapPin, Save, PenTool, AlertCircle, X, Eye, EyeOff, TrendingUp, TrendingDown } from 'lucide-react';
 import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
+import { parseLocalStorageCart, saveToLocalStorageCart } from '../lib/validation';
 
 interface POSProps {
   inventory: ProductGroup[];
@@ -15,9 +16,22 @@ interface POSProps {
 export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings }) => {
   const { notify } = useContext(ToastContext);
   
+  // Run migration on component mount to handle any corrupted data
+  useEffect(() => {
+    const raw = localStorage.getItem('pos_draft_cart');
+    if (raw) {
+      try {
+        JSON.parse(raw);
+      } catch {
+        // If JSON parsing fails, clear corrupted data
+        localStorage.removeItem('pos_draft_cart');
+        notify('Corrupted cart data cleared', 'info');
+      }
+    }
+  }, [notify]);
+  
   const [cart, setCart] = useState<CartItem[]>(() => {
-     const saved = localStorage.getItem('pos_draft_cart');
-     return saved ? JSON.parse(saved) : [];
+     return parseLocalStorageCart('pos_draft_cart');
   });
   
   const [customerName, setCustomerName] = useState(() => localStorage.getItem('pos_draft_name') || '');
@@ -46,7 +60,7 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
   // --- Effects ---
   useEffect(() => {
     const timer = setInterval(() => {
-       localStorage.setItem('pos_draft_cart', JSON.stringify(cart));
+       saveToLocalStorageCart('pos_draft_cart', cart);
        localStorage.setItem('pos_draft_name', customerName);
        localStorage.setItem('pos_draft_phone', customerPhone);
        localStorage.setItem('pos_draft_address', customerAddress);

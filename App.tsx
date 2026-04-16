@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { LanguageContext, ToastContext } from './lib/contexts';
 import { Dashboard } from './components/Dashboard';
 import { Inventory } from './components/Inventory';
@@ -32,6 +32,8 @@ import {
   signIn, signOut, onAuthStateChange, loadCurrentUserProfile,
 } from './lib/db';
 import { LayoutDashboard, ShoppingBag, Package, BookOpen, Menu, X, Languages, Home, Users, Wallet, PieChart, LogOut, History, UserCircle, Settings, FileText, CheckCircle, AlertCircle, Info, Lock, Loader2, Building2, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useAdmin } from './lib/hooks/useAdmin';
+import { safeValidateSale, safeValidatePurchase } from './lib/validation';
 
 // --- Toast / Notification System ---
 type ToastType = 'success' | 'error' | 'info';
@@ -103,6 +105,35 @@ const App: React.FC = () => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchases, setPurchases] = useState<PurchaseType[]>([]);
 
+  // --- Performance Optimizations: Indexed Maps for O(1) Lookups ---
+  const salesById = useMemo(() => 
+    Object.fromEntries(sales.map(s => [s.id, s])), 
+    [sales]
+  );
+
+  const inventoryById = useMemo(() =>
+    Object.fromEntries(inventory.map(g => [g.id, g])),
+    [inventory]
+  );
+
+  const suppliersById = useMemo(() =>
+    Object.fromEntries(suppliers.map(s => [s.id, s])),
+    [suppliers]
+  );
+
+  // Variant index within groups for faster size lookups
+  const variantIndexByGroup = useMemo(() => {
+    const index: Record<string, Record<number, ProductVariant>> = {};
+    inventory.forEach(group => {
+      const variantMap: Record<number, ProductVariant> = {};
+      group.variants.forEach(variant => {
+        variantMap[variant.lengthFeet] = variant;
+      });
+      index[group.id] = variantMap;
+    });
+    return index;
+  }, [inventory]);
+
   // --- Supabase Auth + Data Loading ---
   useEffect(() => {
     // Guard: prevent duplicate loadAllData calls (StrictMode double-invoke, TOKEN_REFRESHED race)
@@ -158,7 +189,7 @@ const App: React.FC = () => {
       }
     }
 
-    const { data: { subscription } } = onAuthStateChange((event, session) => {
+    const { data: { subscription } } = onAuthStateChange(async (event, session) => {
       if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
         if (session?.user) {
           // setTimeout(0) defers past the auth state lock — prevents deadlock
@@ -229,14 +260,24 @@ const App: React.FC = () => {
 
   // Re-pasting handlers for completeness
   const handleCompleteSale = useCallback((sale: Sale) => {
+    // Validate sale data before processing
+    const validationResult = safeValidateSale(sale);
+    if (!validationResult.success) {
+      console.error('Sale validation failed:', validationResult.error);
+      notify('Invalid sale data. Please check the information.', 'error');
+      return;
+    }
+
+    const validatedSale = validationResult.data;
+    
     setSettings(prev => {
-       const newInvoiceId = prev.nextInvoiceId.toString();
-       const saleWithMeta = { ...sale, invoiceId: newInvoiceId, soldBy: currentUser?.name || 'Unknown' };
-       setSales(prevSales => [saleWithMeta, ...prevSales]);
-       saveSale(saleWithMeta).catch(console.error);
-       if (sale.items.length > 0 && sale.items[0].groupId !== 'manual') {
-         setInventory(prevInv => prevInv.map(group => {
-           const relevantItems = sale.items.filter(i => i.groupId === group.id);
+        const newInvoiceId = prev.nextInvoiceId.toString();
+        const saleWithMeta = { ...validatedSale, invoiceId: newInvoiceId, soldBy: currentUser?.name || 'Unknown' };
+        setSales(prevSales => [saleWithMeta, ...prevSales]);
+        saveSale(saleWithMeta).catch(console.error);
+        if (validatedSale.items.length > 0 && validatedSale.items[0].groupId !== 'manual') {
+          setInventory(prevInv => prevInv.map(group => {
+            const relevantItems = validatedSale.items.filter(i => i.groupId === group.id);
            if (relevantItems.length === 0) return group;
             const updatedVariants = group.variants.map(variant => {
               const soldItem = relevantItems.find(item => item.variantId === variant.id);
@@ -261,26 +302,36 @@ const App: React.FC = () => {
         }
        const newSettings = { ...prev, nextInvoiceId: prev.nextInvoiceId + 1 };
        saveSettings(newSettings).catch(console.error);
-       saveActivityLog({ id: crypto.randomUUID(), userId: currentUser?.id ?? '', userName: currentUser?.name ?? 'Unknown', action: `বিক্রয় INV-${newInvoiceId}`, details: `৳${sale.finalAmount}`, timestamp: Date.now() }).catch(console.error);
+        saveActivityLog({ id: crypto.randomUUID(), userId: currentUser?.id ?? '', userName: currentUser?.name ?? 'Unknown', action: `বিক্রয় INV-${newInvoiceId}`, details: `৳${validatedSale.finalAmount}`, timestamp: Date.now() }).catch(console.error);
        return newSettings;
     });
     notify('মেমো সেভ হয়েছে', 'success');
   }, [currentUser, notify]);
 
   const handleCompletePurchase = useCallback((purchase: PurchaseType, newSupplier?: Supplier) => {
-    let supId = purchase.supplierId;
+    // Validate purchase data before processing
+    const validationResult = safeValidatePurchase(purchase);
+    if (!validationResult.success) {
+      console.error('Purchase validation failed:', validationResult.error);
+      notify('Invalid purchase data. Please check the information.', 'error');
+      return;
+    }
+
+    const validatedPurchase = validationResult.data;
+    
+    let supId = validatedPurchase.supplierId;
     if (newSupplier) {
        supId = newSupplier.id;
-       setSuppliers(prev => [...prev, { ...newSupplier, totalPurchase: purchase.finalAmount, totalDue: purchase.dueAmount }]);
+       setSuppliers(prev => [...prev, { ...newSupplier, totalPurchase: validatedPurchase.finalAmount, totalDue: validatedPurchase.dueAmount }]);
     } else {
-       setSuppliers(prev => prev.map(s => s.id === supId ? { ...s, totalPurchase: s.totalPurchase + purchase.finalAmount, totalDue: s.totalDue + purchase.dueAmount } : s));
+       setSuppliers(prev => prev.map(s => s.id === supId ? { ...s, totalPurchase: s.totalPurchase + validatedPurchase.finalAmount, totalDue: s.totalDue + validatedPurchase.dueAmount } : s));
     }
-    const finalPurchase = { ...purchase, supplierId: supId };
+    const finalPurchase = { ...validatedPurchase, supplierId: supId };
     setPurchases(prev => [finalPurchase, ...prev]);
     savePurchase(finalPurchase).catch(console.error);
-    if (purchase.items.length > 0) {
+    if (validatedPurchase.items.length > 0) {
       setInventory(prevInv => prevInv.map(group => {
-        const relevantItems = purchase.items.filter(i => i.groupId === group.id);
+        const relevantItems = validatedPurchase.items.filter(i => i.groupId === group.id);
         if (relevantItems.length === 0) return group;
         const updatedVariants = group.variants.map(variant => {
            const purchasedItem = relevantItems.find(item => item.variantId === variant.id);
@@ -311,18 +362,18 @@ const App: React.FC = () => {
         const updatedGroup = { ...group, variants: updatedVariants };
         return updatedGroup;
       }));
-      if (purchase.paidAmount > 0) {
-         const expEntry = { id: crypto.randomUUID(), reason: `Purchase #${purchase.invoiceId}`, amount: purchase.paidAmount, category: 'purchase' as const, timestamp: Date.now() };
+      if (validatedPurchase.paidAmount > 0) {
+         const expEntry = { id: crypto.randomUUID(), reason: `Purchase #${validatedPurchase.invoiceId}`, amount: validatedPurchase.paidAmount, category: 'purchase' as const, timestamp: Date.now() };
          setExpenses(prev => [...prev, expEntry]);
          saveExpense(expEntry).catch(console.error);
       }
     }
     if (newSupplier) {
-      saveSupplier({ ...newSupplier, totalPurchase: purchase.finalAmount, totalDue: purchase.dueAmount }).catch(console.error);
+      saveSupplier({ ...newSupplier, totalPurchase: validatedPurchase.finalAmount, totalDue: validatedPurchase.dueAmount }).catch(console.error);
     } else {
       setSuppliers(prev => { const s = prev.find(x => x.id === supId); if (s) saveSupplier(s).catch(console.error); return prev; });
     }
-    saveActivityLog({ id: crypto.randomUUID(), userId: '', userName: 'System', action: `ক্রয় PUR-${purchase.invoiceId}`, details: `৳${purchase.finalAmount}`, timestamp: Date.now() }).catch(console.error);
+    saveActivityLog({ id: crypto.randomUUID(), userId: '', userName: 'System', action: `ক্রয় PUR-${validatedPurchase.invoiceId}`, details: `৳${validatedPurchase.finalAmount}`, timestamp: Date.now() }).catch(console.error);
     notify('স্টক আপডেট হয়েছে', 'success');
   }, [notify]);
 
@@ -418,11 +469,13 @@ const App: React.FC = () => {
     );
   }
 
-  const isAdmin = currentUser.role === 'admin';
+  // Use secure admin hook with server-side verification
+  const { isAdmin, isLoading: isAdminLoading, hasPermission } = useAdmin(currentUser);
 
   // --- Compact Sidebar Nav Button ---
-  const NavButton = React.memo(({ tab, icon: Icon, label, restricted }: any) => {
+  const NavButton = React.memo(({ tab, icon: Icon, label, restricted, requiredPermission }: any) => {
     if (restricted && !isAdmin) return null;
+    if (requiredPermission && !hasPermission(requiredPermission)) return null;
     return (
       <button
         onClick={() => { setActiveTab(tab); setIsMobileMenuOpen(false); }}
@@ -477,10 +530,10 @@ const App: React.FC = () => {
                <>
                <div className="my-2 border-t border-slate-100"></div>
                {!isSidebarCollapsed && <p className="px-3 text-[10px] font-bold text-slate-400 uppercase mb-1">Admin</p>}
-               <NavButton tab="reports" icon={PieChart} label={t('reports')} restricted={true} />
-               <NavButton tab="salary" icon={UserCircle} label={t('salary')} restricted={true} />
-               <NavButton tab="logs" icon={History} label={t('logs')} restricted={true} />
-               <NavButton tab="settings" icon={Settings} label={t('settings')} restricted={true} />
+                <NavButton tab="reports" icon={PieChart} label={t('reports')} restricted={true} requiredPermission="view_reports" />
+                <NavButton tab="salary" icon={UserCircle} label={t('salary')} restricted={true} requiredPermission="manage_salary" />
+                <NavButton tab="logs" icon={History} label={t('logs')} restricted={true} requiredPermission="view_logs" />
+                <NavButton tab="settings" icon={Settings} label={t('settings')} restricted={true} requiredPermission="manage_settings" />
                </>
             )}
           </nav>
@@ -531,8 +584,8 @@ const App: React.FC = () => {
              {activeTab === 'pos' && <MemoPOS inventory={inventory} onCompleteSale={handleCompleteSale} settings={settings} sales={sales} />}
              {activeTab === 'purchase' && <MemoPurchase inventory={inventory} suppliers={suppliers} onCompletePurchase={handleCompletePurchase} settings={settings} />}
              {activeTab === 'history' && <MemoSalesHistory sales={sales} onUpdateSale={handleUpdateSale} onDeleteSale={handleDeleteSale} inventory={inventory} setInventory={handleInventoryUpdate} settings={settings} />}
-             {activeTab === 'inventory' && <MemoInventory inventory={inventory} setInventory={setInventory} settings={settings} setSettings={setSettings} stockLogs={stockLogs} onStockAdd={handleStockEntry} currentUser={currentUser} />}
-             {activeTab === 'ledger' && <MemoLedger sales={sales} onUpdateSale={handleUpdateSale} onAddNewSale={handleCompleteSale} onReturnItem={handleReturnItem} />}
+              {activeTab === 'inventory' && <MemoInventory inventory={inventory} inventoryById={inventoryById} variantIndexByGroup={variantIndexByGroup} setInventory={setInventory} settings={settings} setSettings={setSettings} stockLogs={stockLogs} onStockAdd={handleStockEntry} currentUser={currentUser} />}
+              {activeTab === 'ledger' && <MemoLedger sales={sales} salesById={salesById} onUpdateSale={handleUpdateSale} onAddNewSale={handleCompleteSale} onReturnItem={handleReturnItem} />}
              {activeTab === 'customers' && <MemoCustomers sales={sales} onUpdateCustomer={handleGlobalCustomerUpdate} />}
              {activeTab === 'suppliers' && <MemoSupplierManager suppliers={suppliers} onAddSupplier={(s) => setSuppliers(prev => [...prev, s])} />}
              {activeTab === 'expenses' && <MemoExpenses expenses={expenses} onAddExpense={handleAddExpense} onDeleteExpense={handleDeleteExpense} />}
