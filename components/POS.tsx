@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect, useContext, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { ProductGroup, ProductVariant, CartItem, Sale, StoreSettings } from '../types';
-import { ShoppingCart, CheckCircle, Trash, Layers, Tag, Calculator, User, Phone, Truck, FileText, MapPin, Save, PenTool, AlertCircle, X, Eye, EyeOff, TrendingUp, TrendingDown, Search } from 'lucide-react';
+import { ShoppingCart, CheckCircle, Trash, Layers, Tag, Calculator, User, Phone, Truck, FileText, MapPin, Save, PenTool, AlertCircle, X, Eye, EyeOff, TrendingUp, TrendingDown } from 'lucide-react';
 import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
-import { calculateLineItem, makeCartItem } from '../lib/pricing';
+import { parseLocalStorageCart, saveToLocalStorageCart } from '../lib/validation';
 
 interface POSProps {
   inventory: ProductGroup[];
@@ -15,25 +15,33 @@ interface POSProps {
 
 export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings }) => {
   const { notify } = useContext(ToastContext);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
+  
+  // Run migration on component mount to handle any corrupted data
+  useEffect(() => {
+    const raw = localStorage.getItem('pos_draft_cart');
+    if (raw) {
+      try {
+        JSON.parse(raw);
+      } catch {
+        // If JSON parsing fails, clear corrupted data
+        localStorage.removeItem('pos_draft_cart');
+        notify('Corrupted cart data cleared', 'info');
+      }
+    }
+  }, [notify]);
+  
   const [cart, setCart] = useState<CartItem[]>(() => {
-     const saved = localStorage.getItem('pos_draft_cart');
-     return saved ? JSON.parse(saved) : [];
+     return parseLocalStorageCart('pos_draft_cart');
   });
-
+  
   const [customerName, setCustomerName] = useState(() => localStorage.getItem('pos_draft_name') || '');
   const [customerPhone, setCustomerPhone] = useState(() => localStorage.getItem('pos_draft_phone') || '');
   const [customerAddress, setCustomerAddress] = useState(() => localStorage.getItem('pos_draft_address') || '');
-
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<{ group: ProductGroup; variant: ProductVariant }[]>([]);
-  const [showSearchResults, setShowSearchResults] = useState(false);
-
-  const [selProductType, setSelProductType] = useState<string>('');
-  const [selBrand, setSelBrand] = useState<string>('');
-  const [selThickness, setSelThickness] = useState<string>('');
-  const [selColor, setSelColor] = useState<string>('');
+  
+  const [selProductType, setSelProductType] = useState<string>(''); 
+  const [selBrand, setSelBrand] = useState<string>('');             
+  const [selThickness, setSelThickness] = useState<string>('');     
+  const [selColor, setSelColor] = useState<string>('');             
   const [selSize, setSelSize] = useState<number | null>(null);      
 
   const [manualName, setManualName] = useState('');
@@ -49,56 +57,10 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
   // New: Profit Visibility Toggle
   const [showProfit, setShowProfit] = useState(false);
 
-  // --- Quick Product Search ---
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    if (query.length < 2) {
-      setSearchResults([]);
-      setShowSearchResults(false);
-      return;
-    }
-    const q = query.toLowerCase();
-    const results: { group: ProductGroup; variant: ProductVariant }[] = [];
-    for (const group of inventory) {
-      for (const variant of group.variants) {
-        const name = `${group.productType} ${group.brand} ${group.thickness} ${group.color} ${variant.lengthFeet}`.toLowerCase();
-        if (name.includes(q)) {
-          results.push({ group, variant });
-        }
-      }
-    }
-    setSearchResults(results.slice(0, 20));
-    setShowSearchResults(true);
-  };
-
-  const selectSearchResult = (group: ProductGroup, variant: ProductVariant) => {
-    setSelProductType(group.productType);
-    setSelBrand(group.brand);
-    setSelThickness(group.thickness);
-    setSelColor(group.color);
-    setSelSize(variant.lengthFeet);
-    setSearchQuery('');
-    setSearchResults([]);
-    setShowSearchResults(false);
-    searchInputRef.current?.blur();
-  };
-
-  // Keyboard shortcut: Ctrl+K or / to focus search
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey && e.key === 'k') || (e.key === '/' && !e.ctrlKey)) {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
   // --- Effects ---
   useEffect(() => {
     const timer = setInterval(() => {
-       localStorage.setItem('pos_draft_cart', JSON.stringify(cart));
+       saveToLocalStorageCart('pos_draft_cart', cart);
        localStorage.setItem('pos_draft_name', customerName);
        localStorage.setItem('pos_draft_phone', customerPhone);
        localStorage.setItem('pos_draft_address', customerAddress);
@@ -180,30 +142,66 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
 
     if (!targetGroup || !targetVariant) { notify('দয়া করে সব অপশন সিলেক্ট করুন', 'error'); return; }
 
-    // Use centralized pricing calculation (lib/pricing.ts)
-    const calc = calculateLineItem({
-      groupType: targetGroup.type,
-      variant: targetVariant,
-      quantity: qtyNum,
-      rate: rateNum,
-      unitMode,
-    });
+    let qtyPieces = 0;
+    let finalPrice = 0;
+    let formattedQty = '';
+    let itemPriceUnit = 0;
 
-    if (calc.qtyPieces > targetVariant.stockPieces) {
+    // --- Unified Logic (Synced with Purchase.tsx) ---
+    if (targetGroup.type === 'tin_bundle') {
+       const base = targetVariant.calculationBase || 72;
+       const length = targetVariant.lengthFeet;
+       const piecesPerBundle = base / length; 
+
+       if (unitMode === 'bundle') {
+          qtyPieces = Math.round(qtyNum * piecesPerBundle);
+          finalPrice = Math.round(qtyNum * rateNum);
+          formattedQty = `${qtyNum} বান`;
+          itemPriceUnit = Math.round((rateNum / piecesPerBundle) * 100) / 100;
+       } else {
+          // Rate is Bundle Rate, Selling Pieces
+          qtyPieces = qtyNum;
+          finalPrice = Math.round((qtyNum * rateNum) / piecesPerBundle);
+          formattedQty = `${qtyNum} পিস`;
+          itemPriceUnit = Math.round((rateNum / piecesPerBundle) * 100) / 100;
+       }
+    } else if (targetGroup.type === 'running_foot') {
+       // DHALA Logic: Rate is Per Foot
+       qtyPieces = qtyNum;
+       const totalFeet = qtyPieces * targetVariant.lengthFeet;
+       finalPrice = Math.round(totalFeet * rateNum); 
+       formattedQty = `${qtyPieces} pcs (${totalFeet} ft)`;
+       // Store Per Piece Price for internal calculation consistency
+       itemPriceUnit = Math.round(targetVariant.lengthFeet * rateNum * 100) / 100;
+    } else {
+       qtyPieces = qtyNum;
+       finalPrice = Math.round(qtyPieces * rateNum);
+       formattedQty = `${qtyPieces} pcs`;
+       itemPriceUnit = rateNum;
+    }
+
+    if (qtyPieces > targetVariant.stockPieces) {
       notify(`স্টক নেই! আছে মাত্র ${targetVariant.stockPieces} পিস।`, 'error');
       return;
     }
 
-    const cartItem = makeCartItem({
+    const thicknessStr = targetGroup.thickness && targetGroup.thickness !== 'N/A' && targetGroup.thickness !== 'Standard' ? targetGroup.thickness : '';
+    const colorStr = targetGroup.color && targetGroup.color !== 'N/A' ? targetGroup.color : '';
+    const itemName = `${targetGroup.productType} | ${targetGroup.brand} | ${thicknessStr} ${colorStr} | ${targetVariant.lengthFeet}'`.replace(/\s+/g, ' ').trim();
+
+    setCart([...cart, {
       groupId: targetGroup.id,
       variantId: targetVariant.id,
-      group: targetGroup,
-      variant: targetVariant,
-      calc,
-      buyPriceUnit: targetVariant.averageCost || 0,
-    });
-
-    setCart([...cart, cartItem]);
+      name: itemName,
+      lengthFeet: targetVariant.lengthFeet,
+      calculationBase: targetVariant.calculationBase,
+      quantityPieces: qtyPieces,
+      subtotal: finalPrice,
+      unitType: targetGroup.type === 'tin_bundle' ? unitMode : 'piece',
+      formattedQty: formattedQty,
+      priceUnit: itemPriceUnit, // Effective Price per Piece
+      buyPriceUnit: targetVariant.averageCost || 0 
+    }]);
 
     setQuantity('');
     notify('কার্টে যোগ হয়েছে', 'success');
@@ -307,57 +305,15 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
              </h3>
              <div className="flex gap-2 overflow-x-auto max-w-[60%] no-scrollbar">
                {settings.productTypes.map(type => (
-                 <button
-                   key={type}
-                   onClick={() => { setSelProductType(type); setSelBrand(''); setSelThickness(''); setSelColor(''); setSelSize(null); setManualName(''); }}
+                 <button 
+                   key={type} 
+                   onClick={() => { setSelProductType(type); setSelBrand(''); setSelThickness(''); setSelColor(''); setSelSize(null); setManualName(''); }} 
                    className={`flex-none px-3 py-1 rounded-full text-[10px] font-bold transition whitespace-nowrap border ${selProductType === type ? 'bg-blue-50 text-blue-600 border-blue-200' : 'text-slate-400 border-slate-100 hover:bg-slate-50'}`}
                  >
                    {type}
                  </button>
                ))}
              </div>
-          </div>
-
-          {/* Quick Search Bar */}
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              className="w-full pl-10 pr-20 p-2.5 rounded-xl border border-slate-300 bg-slate-50 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all shadow-sm font-medium text-sm"
-              placeholder="পণ্য খুঁজুন... (Ctrl+K)"
-              value={searchQuery}
-              onChange={e => handleSearch(e.target.value)}
-              onFocus={() => searchResults.length > 0 && setShowSearchResults(true)}
-              onBlur={() => setTimeout(() => setShowSearchResults(false), 200)}
-            />
-            <kbd className="absolute right-3 top-3 text-[10px] font-mono text-slate-400 bg-slate-200 px-1.5 py-0.5 rounded">/</kbd>
-
-            {/* Search Results Dropdown */}
-            {showSearchResults && searchResults.length > 0 && (
-              <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-64 overflow-y-auto animate-fade-in">
-                {searchResults.map(({ group, variant }) => (
-                  <button
-                    key={`${group.id}-${variant.id}`}
-                    className="w-full text-left px-4 py-2.5 hover:bg-blue-50 border-b border-slate-50 last:border-b-0 transition flex justify-between items-center"
-                    onMouseDown={() => selectSearchResult(group, variant)}
-                  >
-                    <div>
-                      <span className="font-bold text-sm text-slate-800">{group.brand} {group.productType}</span>
-                      {group.thickness !== 'N/A' && group.thickness !== 'Standard' && <span className="text-xs text-slate-500 ml-1">{group.thickness}</span>}
-                      {group.color !== 'N/A' && <span className="text-xs text-slate-500 ml-1">{group.color}</span>}
-                      <span className="text-xs font-bold text-blue-600 ml-1">{variant.lengthFeet}'</span>
-                    </div>
-                    <span className="text-xs text-slate-400 font-mono">{variant.stockPieces} pcs</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {showSearchResults && searchQuery.length >= 2 && searchResults.length === 0 && (
-              <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl p-4 text-center text-sm text-slate-400">
-                কোনো পণ্য পাওয়া যায়নি
-              </div>
-            )}
           </div>
 
           <div className="space-y-5 animate-fade-in">

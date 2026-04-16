@@ -6,12 +6,13 @@ import { generateId } from '../lib/utils';
 
 interface LedgerProps {
   sales: Sale[];
+  salesById?: Record<string, Sale>; // Optional indexed map for O(1) lookups
   onUpdateSale: (sale: Sale) => void;
   onReturnItem: (saleId: string, itemIndex: number, returnQty: number) => void;
   onAddNewSale?: (sale: Sale) => void; 
 }
 
-export const Ledger: React.FC<LedgerProps> = ({ sales, onUpdateSale, onReturnItem, onAddNewSale }) => {
+export const Ledger: React.FC<LedgerProps> = ({ sales, salesById, onUpdateSale, onReturnItem, onAddNewSale }) => {
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   
@@ -94,7 +95,8 @@ export const Ledger: React.FC<LedgerProps> = ({ sales, onUpdateSale, onReturnIte
     const amount = Number(paymentAmount);
     if (isNaN(amount) || amount <= 0) return;
 
-    const sale = sales.find(s => s.id === selectedSaleId);
+    // Use indexed map for O(1) lookup if available, otherwise fall back to O(n) find
+    const sale = salesById ? salesById[selectedSaleId] : sales.find(s => s.id === selectedSaleId);
     if (!sale) return;
 
     // We allow payment even if due is 0 (it becomes advance/negative due)
@@ -166,7 +168,8 @@ export const Ledger: React.FC<LedgerProps> = ({ sales, onUpdateSale, onReturnIte
   };
 
   const handleSaveChanges = () => {
-    const sale = sales.find(s => s.id === editFormData.id);
+    // Use indexed map for O(1) lookup if available, otherwise fall back to O(n) find
+    const sale = salesById ? salesById[editFormData.id] : sales.find(s => s.id === editFormData.id);
     if (!sale) return;
     onUpdateSale({
       ...sale,
