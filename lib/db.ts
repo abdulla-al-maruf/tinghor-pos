@@ -8,6 +8,7 @@ import type {
   Sale, Purchase, Expense, Employee, SalaryRecord,
   StockLog, Supplier, ActivityLog, Attendance
 } from '../types';
+import { recalcAvgCost } from './pricing';
 
 // ─── SETTINGS ────────────────────────────────────────────────────────────────
 
@@ -18,6 +19,9 @@ export async function loadSettings(): Promise<StoreSettings | null> {
     .single();
   if (error || !data) return null;
   return {
+    shopName: data.shop_name ?? 'টিনঘর.কম',
+    shopPhone: data.shop_phone ?? '',
+    shopAddress: data.shop_address ?? '',
     brands: data.brands ?? [],
     colors: data.colors ?? [],
     thicknesses: data.thicknesses ?? [],
@@ -29,6 +33,9 @@ export async function loadSettings(): Promise<StoreSettings | null> {
 
 export async function saveSettings(settings: StoreSettings): Promise<void> {
   const { data, error } = await supabase.from('store_settings').update({
+    shop_name: settings.shopName,
+    shop_phone: settings.shopPhone,
+    shop_address: settings.shopAddress,
     brands: settings.brands,
     colors: settings.colors,
     thicknesses: settings.thicknesses,
@@ -63,6 +70,7 @@ export function onAuthStateChange(callback: Parameters<typeof supabase.auth.onAu
 export async function loadCurrentUserProfile(userId: string): Promise<User | null> {
   const { data, error } = await supabase.from('profiles').select('id, name, email, role').eq('id', userId).single();
   if (error || !data) return null;
+  if (data.role === 'disabled') return null;
   return { id: data.id, name: data.name, email: data.email, role: data.role, sessions: [] };
 }
 
@@ -129,17 +137,37 @@ export async function saveUsers(users: User[]): Promise<void> {
 }
 
 /**
- * Delete a user from profiles table.
+ * Disable a user account in profiles.
  * NOTE: Supabase Auth deletion requires service role key (server-side only).
- * The auth user remains but without a profile — they can't access the app.
- * To fully delete auth user, use Supabase Dashboard or Management API.
+ * We mark role='disabled' so access is blocked by app + RLS policy.
  */
 export async function deleteUser(userId: string): Promise<void> {
-  const { error } = await supabase
-    .from('profiles')
-    .delete()
-    .eq('id', userId);
-  if (error) throw new Error(`deleteUser: ${error.message}`);
+  try {
+    const { data: authData } = await supabase.auth.getSession();
+    const accessToken = authData.session?.access_token;
+    if (!accessToken) throw new Error('No access token');
+
+    const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-user`;
+    const res = await fetch(fnUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ userId }),
+    });
+
+    if (res.ok) return;
+    const body = await res.text();
+    throw new Error(`edge-delete-user failed: ${res.status} ${body}`);
+  } catch (edgeError) {
+    console.warn('Edge user delete unavailable, disabling user instead:', edgeError);
+    const { error } = await supabase
+      .from('profiles')
+      .update({ role: 'disabled', updated_at: new Date().toISOString() })
+      .eq('id', userId);
+    if (error) throw new Error(`deleteUser: ${error.message}`);
+  }
 }
 
 // ─── INVENTORY ───────────────────────────────────────────────────────────────
@@ -164,7 +192,6 @@ export async function loadInventory(): Promise<ProductGroup[]> {
       stockPieces: v.stock_pieces,
       reservedQty: v.reserved_qty ?? 0,
       avgCostPrice: v.avg_cost_price ?? 0,
-      averageCost: v.average_cost,
       sellingPrice: v.selling_price,
     })),
   }));
@@ -191,7 +218,6 @@ export async function saveProductGroup(group: ProductGroup): Promise<void> {
       stock_pieces: variant.stockPieces,
       reserved_qty: variant.reservedQty ?? 0,
       avg_cost_price: variant.avgCostPrice ?? 0,
-      average_cost: variant.averageCost,
       selling_price: variant.sellingPrice,
       updated_at: new Date().toISOString(),
     });
@@ -431,14 +457,13 @@ export async function savePurchase(purchase: Purchase): Promise<void> {
       const currentAvgCost = variant.avg_cost_price ?? 0;
       const purchaseQty = item.quantityPieces;
       const purchaseCost = item.priceUnit;
-
-      // new_avg_cost = (current_stock_value + purchase_value) / (current_qty + purchase_qty)
-      const currentStockValue = currentStock * currentAvgCost;
-      const purchaseValue = purchaseQty * purchaseCost;
-      const newTotalStock = currentStock + purchaseQty;
-      const newAvgCost = newTotalStock > 0
-        ? Math.round((currentStockValue + purchaseValue) / newTotalStock)
-        : currentAvgCost;
+      const avg = recalcAvgCost({
+        currentStock,
+        currentAvgCost,
+        incomingQty: purchaseQty,
+        incomingCostPerUnit: purchaseCost,
+      });
+      const newAvgCost = Math.round(avg.newAvgCost);
 
       const { error: updateError } = await supabase
         .from('product_variants')
@@ -630,13 +655,13 @@ export async function adjustVariantStock(params: {
   minStock?: number;
   incomingCostPerUnit?: number;
   maxRetries?: number;
-}): Promise<{ stockPieces: number; averageCost: number }> {
+}): Promise<{ stockPieces: number; avgCostPrice: number }> {
   const retries = params.maxRetries ?? 5;
 
   for (let attempt = 0; attempt < retries; attempt++) {
     const { data: current, error: readError } = await supabase
       .from('product_variants')
-      .select('stock_pieces, average_cost')
+      .select('stock_pieces, avg_cost_price')
       .eq('id', params.variantId)
       .single();
 
@@ -645,7 +670,7 @@ export async function adjustVariantStock(params: {
     }
 
     const currentStock = Number(current.stock_pieces ?? 0);
-    const currentAvgCost = Number(current.average_cost ?? 0);
+    const currentAvgCost = Number(current.avg_cost_price ?? 0);
     const nextStock = currentStock + params.qtyDelta;
     const minStock = params.minStock ?? Number.NEGATIVE_INFINITY;
 
@@ -655,22 +680,25 @@ export async function adjustVariantStock(params: {
 
     let nextAvgCost = currentAvgCost;
     if (params.qtyDelta > 0 && typeof params.incomingCostPerUnit === 'number') {
-      const incomingValue = params.qtyDelta * params.incomingCostPerUnit;
-      const currentValue = currentStock * currentAvgCost;
-      const totalValue = currentValue + incomingValue;
-      nextAvgCost = nextStock > 0 ? Math.round((totalValue / nextStock) * 100) / 100 : currentAvgCost;
+      const avg = recalcAvgCost({
+        currentStock,
+        currentAvgCost,
+        incomingQty: params.qtyDelta,
+        incomingCostPerUnit: params.incomingCostPerUnit,
+      });
+      nextAvgCost = avg.newAvgCost;
     }
 
     const { data: updated, error: updateError } = await supabase
       .from('product_variants')
       .update({
         stock_pieces: nextStock,
-        average_cost: nextAvgCost,
+        avg_cost_price: Math.round(nextAvgCost),
         updated_at: new Date().toISOString(),
       })
       .eq('id', params.variantId)
       .eq('stock_pieces', currentStock)
-      .select('stock_pieces, average_cost')
+      .select('stock_pieces, avg_cost_price')
       .maybeSingle();
 
     if (updateError) {
@@ -680,7 +708,7 @@ export async function adjustVariantStock(params: {
     if (updated) {
       return {
         stockPieces: Number(updated.stock_pieces ?? nextStock),
-        averageCost: Number(updated.average_cost ?? nextAvgCost),
+        avgCostPrice: Number(updated.avg_cost_price ?? Math.round(nextAvgCost)),
       };
     }
   }

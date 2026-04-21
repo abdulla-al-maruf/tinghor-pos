@@ -3,6 +3,9 @@ export type Brand = string;
 export type Color = string; 
 
 export interface StoreSettings {
+  shopName: string;
+  shopPhone: string;
+  shopAddress: string;
   brands: string[];
   colors: string[];
   thicknesses: string[];
@@ -12,7 +15,7 @@ export interface StoreSettings {
 }
 
 // User & Auth Types
-export type UserRole = 'admin' | 'manager';
+export type UserRole = 'admin' | 'manager' | 'disabled';
 
 export interface UserSession {
   sessionId: string;
@@ -93,7 +96,6 @@ export interface ProductVariant {
   stockPieces: number;
   reservedQty: number;
   avgCostPrice: number;
-  averageCost: number;
   sellingPrice?: number;
 }
 
@@ -117,6 +119,7 @@ export interface CartItem {
   formattedQty: string; 
   priceUnit: number; 
   buyPriceUnit: number; 
+  costPriceSnapshot?: number;
   subtotal: number;
   unitType: string; 
 }

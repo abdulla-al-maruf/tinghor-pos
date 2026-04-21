@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   email TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'manager' CHECK (role IN ('admin', 'manager')),
+  role TEXT NOT NULL DEFAULT 'manager' CHECK (role IN ('admin', 'manager', 'disabled')),
   phone TEXT,
   avatar_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -72,7 +72,6 @@ CREATE TABLE IF NOT EXISTS product_variants (
   stock_pieces INTEGER NOT NULL DEFAULT 0,
   reserved_qty INTEGER NOT NULL DEFAULT 0,  -- NEW: reserved for pending delivery
   avg_cost_price INTEGER NOT NULL DEFAULT 0, -- NEW: weighted average cost
-  average_cost NUMERIC DEFAULT 0,     -- legacy, keep for backward compat
   selling_price INTEGER,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -342,6 +341,17 @@ BEGIN
   END IF;
 END $$;
 
+-- product_variants: remove legacy average_cost after migration to avg_cost_price
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'product_variants' AND column_name = 'average_cost'
+  ) THEN
+    ALTER TABLE product_variants DROP COLUMN average_cost;
+  END IF;
+END $$;
+
 -- sale_items: cost price snapshot at time of sale
 DO $$
 BEGIN
@@ -392,26 +402,7 @@ DECLARE
 BEGIN
   FOREACH tbl IN ARRAY tables
   LOOP
-    -- Enable RLS
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tbl);
-
-    -- Drop existing policy if exists (idempotent)
-    IF EXISTS (
-      SELECT 1 FROM pg_policies
-      WHERE schemaname = 'public'
-        AND tablename = tbl
-        AND policyname = 'Allow all for authenticated'
-    ) THEN
-      EXECUTE format('DROP POLICY "Allow all for authenticated" ON %I', tbl);
-    END IF;
-
-    -- Create policy
-    EXECUTE format(
-      'CREATE POLICY "Allow all for authenticated" ON %I '
-      'FOR ALL USING (auth.role() = ''authenticated'') '
-      'WITH CHECK (auth.role() = ''authenticated'')',
-      tbl
-    );
   END LOOP;
 END $$;
 

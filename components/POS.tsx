@@ -6,6 +6,8 @@ import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
 import { parseLocalStorageCart, saveToLocalStorageCart } from '../lib/validation';
 
+const MANUAL_PRODUCT_TYPE_ID = 'manual';
+
 interface POSProps {
   inventory: ProductGroup[];
   onCompleteSale: (sale: Sale) => void;
@@ -97,7 +99,7 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
      if(cartFinal > 0 && !paidAmount) setPaidAmount(cartFinal.toString());
   }, [cartFinal]);
 
-  const isManualMode = selProductType === 'অন্যান্য';
+  const isManualMode = selProductType === MANUAL_PRODUCT_TYPE_ID || selProductType === 'অন্যান্য';
 
   const availableBrands = Array.from(new Set(inventory.filter(g => !selProductType || g.productType === selProductType).map(g => g.brand)));
   
@@ -200,7 +202,7 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
       unitType: targetGroup.type === 'tin_bundle' ? unitMode : 'piece',
       formattedQty: formattedQty,
       priceUnit: itemPriceUnit, // Effective Price per Piece
-      buyPriceUnit: targetVariant.averageCost || 0 
+      buyPriceUnit: targetVariant.avgCostPrice || 0 
     }]);
 
     setQuantity('');

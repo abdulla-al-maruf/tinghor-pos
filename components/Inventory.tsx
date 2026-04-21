@@ -4,6 +4,7 @@ import { ProductGroup, StoreSettings, CalculationMode, StockLog, ProductVariant,
 import { Plus, Trash2, ChevronDown, ChevronUp, Package, Search, Save, Eye, EyeOff } from 'lucide-react';
 import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
+import { recalcAvgCost } from '../lib/pricing';
 
 interface InventoryProps {
   inventory: ProductGroup[];
@@ -202,7 +203,7 @@ const ProductGroupCard = React.memo(({
                     {group.type === 'tin_bundle' ? <td className="p-3 text-center text-slate-500 text-xs">{getBundleDisplay(group, v)}</td> : group.type === 'tin_bundle' ? null : <td className="p-3 text-center">-</td>}
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {showCost[v.id] ? <span className="font-mono font-bold text-xs">৳{(v.averageCost || 0).toFixed(2)}</span> : <span className="text-slate-300 text-[10px]">Hidden</span>}
+                        {showCost[v.id] ? <span className="font-mono font-bold text-xs">৳{(v.avgCostPrice || 0).toFixed(2)}</span> : <span className="text-slate-300 text-[10px]">Hidden</span>}
                         <button onClick={() => setShowCost(p => ({...p, [v.id]: !p[v.id]}))} className="text-slate-300 hover:text-blue-500">
                           {showCost[v.id] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                         </button>
@@ -335,18 +336,20 @@ export const Inventory: React.FC<InventoryProps> = ({
 
     if (existingIndex >= 0) {
       const currentStock = updatedVariants[existingIndex].stockPieces;
-      const currentAvgCost = updatedVariants[existingIndex].averageCost || 0;
-      
-      const totalCurrentValue = currentStock * currentAvgCost;
-      const totalIncomingValue = piecesToAdd * incomingCostPerPiece;
-      
-      const newTotalStock = currentStock + piecesToAdd;
-      const newAvgCost = newTotalStock > 0 ? (totalCurrentValue + totalIncomingValue) / newTotalStock : incomingCostPerPiece;
+      const currentAvgCost = updatedVariants[existingIndex].avgCostPrice || 0;
+      const avg = recalcAvgCost({
+        currentStock,
+        currentAvgCost,
+        incomingQty: piecesToAdd,
+        incomingCostPerUnit: incomingCostPerPiece,
+      });
+      const newTotalStock = avg.newTotalStock;
+      const newAvgCost = Math.round(avg.newAvgCost);
 
       updatedVariants[existingIndex] = {
         ...updatedVariants[existingIndex],
         stockPieces: newTotalStock,
-        averageCost: newAvgCost, 
+        avgCostPrice: newAvgCost,
         calculationBase: groupType === 'tin_bundle' ? base : undefined
       };
     } else {
@@ -355,7 +358,8 @@ export const Inventory: React.FC<InventoryProps> = ({
         lengthFeet: length,
         calculationBase: groupType === 'tin_bundle' ? base : undefined,
         stockPieces: piecesToAdd,
-        averageCost: incomingCostPerPiece
+        reservedQty: 0,
+        avgCostPrice: Math.round(incomingCostPerPiece)
       });
     }
     updatedVariants.sort((a, b) => a.lengthFeet - b.lengthFeet);

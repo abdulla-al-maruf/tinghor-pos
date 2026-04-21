@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Sale, CartItem, ProductGroup, StoreSettings } from '../../types';
 import { X, Edit, Plus, Trash2 } from 'lucide-react';
+import { calculateLineItem, makeCartItem } from '../../lib/pricing';
 
 interface EditSaleModalProps {
   editingSale: Sale;
@@ -50,19 +51,21 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
     const qty = Number(addQty);
     const rate = Number(addRate);
     if (qty <= 0) return;
-    const newItem: CartItem = {
+    const calc = calculateLineItem({
+      groupType: group.type,
+      variant: targetVariant,
+      quantity: qty,
+      rate,
+      unitMode: 'piece',
+    });
+    const newItem: CartItem = makeCartItem({
       groupId: group.id,
       variantId: targetVariant.id,
-      name: `${group.productType} - ${group.brand} ${group.thickness} ${group.color || ''} - ${targetVariant.lengthFeet}'`,
-      lengthFeet: targetVariant.lengthFeet,
-      calculationBase: targetVariant.calculationBase,
-      quantityPieces: qty,
-      formattedQty: `${qty} pcs (Added)`,
-      priceUnit: rate,
-      buyPriceUnit: targetVariant.averageCost || 0,
-      subtotal: Math.round(qty * rate),
-      unitType: 'piece',
-    };
+      group,
+      variant: targetVariant,
+      calc,
+      buyPriceUnit: targetVariant.avgCostPrice || 0,
+    });
     setEditForm(f => ({ ...f, items: [...f.items, newItem] }));
     setIsAddingItem(false);
     setAddQty('');

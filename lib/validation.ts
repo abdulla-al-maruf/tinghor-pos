@@ -1,5 +1,5 @@
 import { z, ZodError } from 'zod';
-import { Sale, Purchase as PurchaseType } from '../types';
+import { Sale, Purchase as PurchaseType, CartItem } from '../types';
 
 // CartItem validation schema
 export const CartItemSchema = z.object({
@@ -100,7 +100,7 @@ export function safeValidatePurchase(purchase: unknown): { success: true; data: 
 export const LocalStorageCartSchema = z.array(CartItemSchema);
 
 // Safe localStorage parsing with validation
-export function parseLocalStorageCart(key: string = 'pos_draft_cart'): any[] {
+export function parseLocalStorageCart(key: string = 'pos_draft_cart'): CartItem[] {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return [];
@@ -111,7 +111,7 @@ export function parseLocalStorageCart(key: string = 'pos_draft_cart'): any[] {
     if (result.success) {
       return result.data;
     } else {
-      console.warn(`Invalid cart data in localStorage key "${key}":`, (result as any).error?.errors || 'Validation failed');
+      console.warn(`Invalid cart data in localStorage key "${key}":`, result.error.issues || 'Validation failed');
       // Clear corrupted data
       localStorage.removeItem(key);
       return [];
@@ -125,11 +125,11 @@ export function parseLocalStorageCart(key: string = 'pos_draft_cart'): any[] {
 }
 
 // Safe localStorage saving with validation
-export function saveToLocalStorageCart(key: string = 'pos_draft_cart', data: any[]): boolean {
+export function saveToLocalStorageCart(key: string = 'pos_draft_cart', data: CartItem[]): boolean {
   try {
     const result = LocalStorageCartSchema.safeParse(data);
     if (!result.success) {
-      console.error('Invalid cart data to save:', (result as any).error?.errors || 'Validation failed');
+      console.error('Invalid cart data to save:', result.error.issues || 'Validation failed');
       return false;
     }
     

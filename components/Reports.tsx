@@ -19,7 +19,7 @@ export const Reports: React.FC<ReportsProps> = ({ sales, expenses }) => {
   const totalCOGS = sales.reduce((saleSum, sale) => {
     const saleCost = sale.items.reduce((itemSum, item) => {
       // Prefer cost_price_snapshot (saved at sale time), fallback to buyPriceUnit for old data
-      const cost = (item as any).costPriceSnapshot ?? item.buyPriceUnit ?? 0;
+      const cost = item.costPriceSnapshot ?? item.buyPriceUnit ?? 0;
       return itemSum + (cost * item.quantityPieces);
     }, 0);
     return saleSum + saleCost;
@@ -87,7 +87,7 @@ export const Reports: React.FC<ReportsProps> = ({ sales, expenses }) => {
                    {[...sales].sort((a,b) => b.timestamp - a.timestamp).map(sale => {
                       // Calculate individual sale metrics using cost_price_snapshot
                       const saleCost = sale.items.reduce((sum, item) => {
-                        const cost = (item as any).costPriceSnapshot ?? item.buyPriceUnit ?? 0;
+                        const cost = item.costPriceSnapshot ?? item.buyPriceUnit ?? 0;
                         return sum + (cost * item.quantityPieces);
                       }, 0);
                       const saleProfit = sale.finalAmount - saleCost;

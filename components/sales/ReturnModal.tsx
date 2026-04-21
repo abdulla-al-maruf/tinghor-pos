@@ -7,7 +7,6 @@ export interface ReturnModalState {
   sale: Sale | null;
   itemIndex: number | null;
   returnQty: string;
-  manualRefundAmount: string;
 }
 
 interface ReturnModalProps {
@@ -50,26 +49,14 @@ export const ReturnModal: React.FC<ReturnModalProps> = ({ modal, onChange, onPro
               <div className="p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
                 কেনা দর: ৳{modal.sale.items[modal.itemIndex].priceUnit} / pcs
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">ফেরত পরিমাণ (Qty)</label>
-                  <input
-                    type="number"
-                    className="w-full p-2 border rounded font-bold text-lg"
-                    value={modal.returnQty}
-                    onChange={e => onChange({ ...modal, returnQty: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">টাকা ফেরত (Refund)</label>
-                  <input
-                    type="number"
-                    className="w-full p-2 border border-red-300 rounded font-bold text-lg text-red-600"
-                    placeholder="Amount"
-                    value={modal.manualRefundAmount}
-                    onChange={e => onChange({ ...modal, manualRefundAmount: e.target.value })}
-                  />
-                </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">ফেরত পরিমাণ (Qty)</label>
+                <input
+                  type="number"
+                  className="w-full p-2 border rounded font-bold text-lg"
+                  value={modal.returnQty}
+                  onChange={e => onChange({ ...modal, returnQty: e.target.value })}
+                />
               </div>
               {modal.returnQty && (
                 <p className="text-xs text-center text-slate-400">
