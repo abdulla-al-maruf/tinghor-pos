@@ -1,5 +1,6 @@
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { App as CapApp } from '@capacitor/app';
 import { LanguageContext, ToastContext } from './lib/contexts';
 import { Dashboard } from './components/Dashboard';
 import { Inventory } from './components/Inventory';
@@ -14,27 +15,24 @@ import { AdminSettings } from './components/AdminSettings';
 import { SalesHistory } from './components/SalesHistory';
 import { Purchase } from './components/Purchase'; 
 import { SupplierManager } from './components/SupplierManager'; 
-import { ProductGroup, Sale, Language, StoreSettings, Expense, User, ActivityLog, Employee, SalaryRecord, StockLog, ProductVariant, Supplier, Purchase as PurchaseType, Attendance } from './types';
+import { ProductGroup, Sale, Language, StoreSettings, Expense, User, ActivityLog, Employee, SalaryRecord, StockLog, ProductVariant, Supplier, Purchase as PurchaseType } from './types';
 import {
   loadSettings, saveSettings,
   loadUsers, saveUsers,
-  loadInventory, saveProductGroup,
+  loadInventory, saveInventory, saveProductGroup,
   loadSales, saveSale, deleteSale,
   loadPurchases, savePurchase,
   loadSuppliers, saveSupplier,
   loadExpenses, saveExpense, deleteExpense as dbDeleteExpense,
   loadEmployees, saveEmployee,
   loadSalaryRecords, saveSalaryRecord,
-  loadActivityLogs, saveActivityLog, loadAttendance, saveAttendance,
+  loadActivityLogs, saveActivityLog,
   adjustVariantStock,
   saveStockMovement,
   savePaymentAllocation,
   signIn, signOut, onAuthStateChange, loadCurrentUserProfile,
 } from './lib/db';
 import { LayoutDashboard, ShoppingBag, Package, BookOpen, Menu, X, Languages, Home, Users, Wallet, PieChart, LogOut, History, UserCircle, Settings, FileText, CheckCircle, AlertCircle, Info, Lock, Loader2, Building2, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useAdmin } from './lib/useAdmin';
-import { safeValidateSale, safeValidatePurchase } from './lib/validation';
-import { recalcAvgCost } from './lib/pricing';
 
 // --- Toast / Notification System ---
 type ToastType = 'success' | 'error' | 'info';
@@ -94,50 +92,21 @@ const App: React.FC = () => {
 
   // --- Data States ---
   const [users, setUsers] = useState<User[]>([]);
-  const [settings, setSettings] = useState<StoreSettings>({ shopName: 'টিনঘর.কম', shopPhone: '', shopAddress: '', brands: [], colors: [], thicknesses: [], productTypes: [], customFields: [], nextInvoiceId: 1001 });
+  const [settings, setSettings] = useState<StoreSettings>({ brands: [], colors: [], thicknesses: [], productTypes: [], customFields: [], nextInvoiceId: 1001 });
   const [inventory, setInventory] = useState<ProductGroup[]>([]);
   const [stockLogs, setStockLogs] = useState<StockLog[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [salaryRecords, setSalaryRecords] = useState<SalaryRecord[]>([]);
-  const [attendance, setAttendance] = useState<Attendance[]>([]);
+  const [attendance, setAttendance] = useState<any[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchases, setPurchases] = useState<PurchaseType[]>([]);
 
-  // --- Performance Optimizations: Indexed Maps for O(1) Lookups ---
-  const salesById = useMemo(() => 
-    Object.fromEntries(sales.map(s => [s.id, s])), 
-    [sales]
-  );
-
-  const inventoryById = useMemo(() =>
-    Object.fromEntries(inventory.map(g => [g.id, g])),
-    [inventory]
-  );
-
-  const suppliersById = useMemo(() =>
-    Object.fromEntries(suppliers.map(s => [s.id, s])),
-    [suppliers]
-  );
-
-  // Variant index within groups for faster size lookups
-  const variantIndexByGroup = useMemo(() => {
-    const index: Record<string, Record<number, ProductVariant>> = {};
-    inventory.forEach(group => {
-      const variantMap: Record<number, ProductVariant> = {};
-      group.variants.forEach(variant => {
-        variantMap[variant.lengthFeet] = variant;
-      });
-      index[group.id] = variantMap;
-    });
-    return index;
-  }, [inventory]);
-
   // --- Supabase Auth + Data Loading ---
   useEffect(() => {
-    // Guard: prevent duplicate loadAllData calls (StrictMode double-invoke)
+    // Guard: prevent duplicate loadAllData calls (StrictMode double-invoke, TOKEN_REFRESHED race)
     let dataLoadStarted = false;
 
     async function loadAllData() {
@@ -147,12 +116,11 @@ const App: React.FC = () => {
         loadSettings(), loadUsers(), loadInventory(), loadSales(),
         loadPurchases(), loadSuppliers(), loadExpenses(),
         loadEmployees(), loadSalaryRecords(), loadActivityLogs(),
-        loadAttendance(),
       ]);
       const [
         settingsRes, usersRes, inventoryRes, salesRes,
         purchasesRes, suppliersRes, expensesRes,
-        employeesRes, salaryRes, logsRes, attendanceRes,
+        employeesRes, salaryRes, logsRes,
       ] = results;
 
       const failures = results.filter(r => r.status === 'rejected');
@@ -170,7 +138,6 @@ const App: React.FC = () => {
       if (employeesRes.status === 'fulfilled') setEmployees(employeesRes.value);
       if (salaryRes.status === 'fulfilled') setSalaryRecords(salaryRes.value);
       if (logsRes.status === 'fulfilled') setLogs(logsRes.value);
-      if (attendanceRes.status === 'fulfilled') setAttendance(attendanceRes.value);
 
       setIsDataLoaded(true);
     }
@@ -192,10 +159,16 @@ const App: React.FC = () => {
       }
     }
 
-    const { data: { subscription } } = onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = onAuthStateChange((event, session) => {
       if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
         if (session?.user) {
           // setTimeout(0) defers past the auth state lock — prevents deadlock
+          setTimeout(() => tryLoadUser(session.user.id), 0);
+        } else {
+          setIsAuthChecked(true);
+        }
+      } else if (event === 'TOKEN_REFRESHED') {
+        if (session?.user) {
           setTimeout(() => tryLoadUser(session.user.id), 0);
         } else {
           setIsAuthChecked(true);
@@ -217,6 +190,26 @@ const App: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // --- Supabase Background Sync (debounced) ---
+  const syncTimeout = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const debounceSync = useCallback((key: string, fn: () => Promise<void>) => {
+    if (syncTimeout.current[key]) clearTimeout(syncTimeout.current[key]);
+    syncTimeout.current[key] = setTimeout(() => fn().catch(console.error), 1500);
+  }, []);
+
+  useEffect(() => { if (isDataLoaded) debounceSync('settings', () => saveSettings(settings)); }, [settings, isDataLoaded, debounceSync]);
+  useEffect(() => { if (isDataLoaded) debounceSync('users', () => saveUsers(users)); }, [users, isDataLoaded, debounceSync]);
+  useEffect(() => { if (isDataLoaded) debounceSync('inventory', () => saveInventory(inventory)); }, [inventory, isDataLoaded, debounceSync]);
+  useEffect(() => { if (isDataLoaded) debounceSync('suppliers', () => Promise.all(suppliers.map(saveSupplier)).then(() => {})); }, [suppliers, isDataLoaded, debounceSync]);
+
+  useEffect(() => {
+    const listener = CapApp.addListener('backButton', ({ canGoBack }) => {
+      if (!canGoBack) CapApp.exitApp();
+      else window.history.back();
+    });
+    return () => { listener.then(h => h.remove()); };
+  }, []);
+
   // --- Helpers ---
   const t = useCallback((key: string) => translations[key]?.[lang] || key, [lang]);
 
@@ -228,25 +221,10 @@ const App: React.FC = () => {
     }, 3000);
   }, []);
 
-  // --- Supabase Background Sync (debounced) ---
-  const syncTimeout = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const debounceSync = useCallback((key: string, fn: () => Promise<void>) => {
-    if (syncTimeout.current[key]) clearTimeout(syncTimeout.current[key]);
-    syncTimeout.current[key] = setTimeout(() => fn().catch((err) => {
-      console.error(err);
-      notify('সিঙ্ক ব্যর্থ হয়েছে', 'error');
-    }), 1500);
-  }, [notify]);
-
-  useEffect(() => { if (isDataLoaded) debounceSync('settings', () => saveSettings(settings)); }, [settings, isDataLoaded, debounceSync]);
-  useEffect(() => { if (isDataLoaded) debounceSync('users', () => saveUsers(users)); }, [users, isDataLoaded, debounceSync]);
-  useEffect(() => { if (isDataLoaded) debounceSync('suppliers', () => Promise.all(suppliers.map(saveSupplier)).then(() => {})); }, [suppliers, isDataLoaded, debounceSync]);
-
   const handleLogin = async () => {
     const { error } = await signIn(loginEmail, loginPass);
     if (error) {
       notify('ইমেইল বা পাসওয়ার্ড ভুল!', 'error');
-      setLoginPass('');
     } else {
       setLoginEmail('');
       setLoginPass('');
@@ -260,172 +238,104 @@ const App: React.FC = () => {
 
   // Re-pasting handlers for completeness
   const handleCompleteSale = useCallback((sale: Sale) => {
-    const validationResult = safeValidateSale(sale);
-    if (!validationResult.success) {
-      console.error('Sale validation failed:', validationResult.error);
-      notify('Invalid sale data. Please check the information.', 'error');
-      return;
-    }
-
-    const validatedSale = validationResult.data;
-    const newInvoiceId = settings.nextInvoiceId.toString();
-    const saleWithMeta = { ...validatedSale, invoiceId: newInvoiceId, soldBy: currentUser?.name || 'Unknown' };
-    const newSettings = { ...settings, nextInvoiceId: settings.nextInvoiceId + 1 };
-
-    setSettings(newSettings);
-    setSales(prevSales => [saleWithMeta, ...prevSales]);
-
-    saveSettings(newSettings).catch(err => {
-      console.error(err);
-      notify('সেটিংস সেভ হয়নি', 'error');
-    });
-    saveSale(saleWithMeta).catch(err => {
-      console.error(err);
-      notify('মেমো সেভ হয়নি', 'error');
-    });
-
-    if (validatedSale.items.length > 0 && validatedSale.items[0].groupId !== 'manual') {
-      setInventory(prevInv => prevInv.map(group => {
-        const relevantItems = validatedSale.items.filter(i => i.groupId === group.id);
-        if (relevantItems.length === 0) return group;
-        const updatedVariants = group.variants.map(variant => {
-          const soldItem = relevantItems.find(item => item.variantId === variant.id);
-          if (!soldItem) return variant;
-          adjustVariantStock({ variantId: variant.id, qtyDelta: -soldItem.quantityPieces, minStock: 0 })
-            .then((updated) => saveStockMovement({
-              variantId: variant.id,
-              qtyChange: -soldItem.quantityPieces,
-              qtyAfter: updated.stockPieces,
-              costPerUnit: updated.avgCostPrice,
-              voucherType: 'sale',
-              voucherId: saleWithMeta.id,
-            }))
-            .catch(err => {
-              console.error(err);
-              notify('স্টক আপডেট হয়নি', 'error');
+    setSettings(prev => {
+       const newInvoiceId = prev.nextInvoiceId.toString();
+       const saleWithMeta = { ...sale, invoiceId: newInvoiceId, soldBy: currentUser?.name || 'Unknown' };
+       setSales(prevSales => [saleWithMeta, ...prevSales]);
+       saveSale(saleWithMeta).catch(console.error);
+       if (sale.items.length > 0 && sale.items[0].groupId !== 'manual') {
+         setInventory(prevInv => prevInv.map(group => {
+           const relevantItems = sale.items.filter(i => i.groupId === group.id);
+           if (relevantItems.length === 0) return group;
+            const updatedVariants = group.variants.map(variant => {
+              const soldItem = relevantItems.find(item => item.variantId === variant.id);
+              if (soldItem) {
+                adjustVariantStock({ variantId: variant.id, qtyDelta: -soldItem.quantityPieces, minStock: 0 })
+                  .then((updated) => saveStockMovement({
+                    variantId: variant.id,
+                    qtyChange: -soldItem.quantityPieces,
+                    qtyAfter: updated.stockPieces,
+                    costPerUnit: updated.averageCost,
+                    voucherType: 'sale',
+                    voucherId: saleWithMeta.id,
+                  }))
+                  .catch(console.error);
+                return { ...variant, stockPieces: variant.stockPieces - soldItem.quantityPieces };
+              }
+              return variant;
             });
-          return { ...variant, stockPieces: variant.stockPieces - soldItem.quantityPieces };
-        });
-        return { ...group, variants: updatedVariants };
-      }));
-    }
-
-    saveActivityLog({ id: crypto.randomUUID(), userId: currentUser?.id ?? '', userName: currentUser?.name ?? 'Unknown', action: `বিক্রয় INV-${newInvoiceId}`, details: `৳${validatedSale.finalAmount}`, timestamp: Date.now() }).catch(err => console.error(err));
+            const updatedGroup = { ...group, variants: updatedVariants };
+            return updatedGroup;
+          }));
+        }
+       const newSettings = { ...prev, nextInvoiceId: prev.nextInvoiceId + 1 };
+       saveSettings(newSettings).catch(console.error);
+       saveActivityLog({ id: crypto.randomUUID(), userId: currentUser?.id ?? '', userName: currentUser?.name ?? 'Unknown', action: `বিক্রয় INV-${newInvoiceId}`, details: `৳${sale.finalAmount}`, timestamp: Date.now() }).catch(console.error);
+       return newSettings;
+    });
     notify('মেমো সেভ হয়েছে', 'success');
-  }, [currentUser, notify, settings]);
+  }, [currentUser, notify]);
 
   const handleCompletePurchase = useCallback((purchase: PurchaseType, newSupplier?: Supplier) => {
-    const validationResult = safeValidatePurchase(purchase);
-    if (!validationResult.success) {
-      console.error('Purchase validation failed:', validationResult.error);
-      notify('Invalid purchase data. Please check the information.', 'error');
-      return;
-    }
-
-    const validatedPurchase = validationResult.data;
-    
-    let supId = validatedPurchase.supplierId;
+    let supId = purchase.supplierId;
     if (newSupplier) {
        supId = newSupplier.id;
-       setSuppliers(prev => [...prev, { ...newSupplier, totalPurchase: validatedPurchase.finalAmount, totalDue: validatedPurchase.dueAmount }]);
+       setSuppliers(prev => [...prev, { ...newSupplier, totalPurchase: purchase.finalAmount, totalDue: purchase.dueAmount }]);
     } else {
-       setSuppliers(prev => prev.map(s => s.id === supId ? { ...s, totalPurchase: s.totalPurchase + validatedPurchase.finalAmount, totalDue: s.totalDue + validatedPurchase.dueAmount } : s));
+       setSuppliers(prev => prev.map(s => s.id === supId ? { ...s, totalPurchase: s.totalPurchase + purchase.finalAmount, totalDue: s.totalDue + purchase.dueAmount } : s));
     }
-    const finalPurchase = { ...validatedPurchase, supplierId: supId };
+    const finalPurchase = { ...purchase, supplierId: supId };
     setPurchases(prev => [finalPurchase, ...prev]);
-    savePurchase(finalPurchase).catch(err => {
-      console.error(err);
-      notify('ক্রয় সেভ হয়নি', 'error');
-    });
-    if (validatedPurchase.items.length > 0) {
+    savePurchase(finalPurchase).catch(console.error);
+    if (purchase.items.length > 0) {
       setInventory(prevInv => prevInv.map(group => {
-        const relevantItems = validatedPurchase.items.filter(i => i.groupId === group.id);
+        const relevantItems = purchase.items.filter(i => i.groupId === group.id);
         if (relevantItems.length === 0) return group;
         const updatedVariants = group.variants.map(variant => {
            const purchasedItem = relevantItems.find(item => item.variantId === variant.id);
            if (purchasedItem) {
-               const avg = recalcAvgCost({
-                 currentStock: variant.stockPieces,
-                 currentAvgCost: variant.avgCostPrice || 0,
-                 incomingQty: purchasedItem.quantityPieces,
-                 incomingCostPerUnit: purchasedItem.priceUnit,
-               });
-               const newTotalStock = avg.newTotalStock;
-               const newAvg = Math.round(avg.newAvgCost);
+               const oldVal = variant.stockPieces * (variant.averageCost || 0);
+               const newVal = purchasedItem.quantityPieces * purchasedItem.priceUnit;
+               const newTotalStock = variant.stockPieces + purchasedItem.quantityPieces;
+               const newAvg = newTotalStock > 0 ? Math.round(((oldVal + newVal) / newTotalStock) * 100) / 100 : Math.round(purchasedItem.priceUnit * 100) / 100;
                adjustVariantStock({
-                  variantId: variant.id,
-                  qtyDelta: purchasedItem.quantityPieces,
-                  incomingCostPerUnit: purchasedItem.priceUnit,
-                  minStock: 0,
-                })
-                  .then((updated) => saveStockMovement({
-                    variantId: variant.id,
-                    qtyChange: purchasedItem.quantityPieces,
-                    qtyAfter: updated.stockPieces,
-                    costPerUnit: purchasedItem.priceUnit,
-                    voucherType: 'purchase',
-                    voucherId: finalPurchase.id,
-                  }))
-                  .catch(err => {
-                    console.error(err);
-                    notify('স্টক মুভমেন্ট লগ হয়নি', 'error');
-                  });
-               return { ...variant, stockPieces: newTotalStock, avgCostPrice: newAvg };
-            }
-            return variant;
-         });
+                 variantId: variant.id,
+                 qtyDelta: purchasedItem.quantityPieces,
+                 incomingCostPerUnit: purchasedItem.priceUnit,
+                 minStock: 0,
+               })
+                 .then((updated) => saveStockMovement({
+                   variantId: variant.id,
+                   qtyChange: purchasedItem.quantityPieces,
+                   qtyAfter: updated.stockPieces,
+                   costPerUnit: purchasedItem.priceUnit,
+                   voucherType: 'purchase',
+                   voucherId: finalPurchase.id,
+                 }))
+                 .catch(console.error);
+               return { ...variant, stockPieces: newTotalStock, averageCost: newAvg };
+           }
+           return variant;
+        });
         const updatedGroup = { ...group, variants: updatedVariants };
         return updatedGroup;
       }));
-      if (validatedPurchase.paidAmount > 0) {
-         const expEntry = { id: crypto.randomUUID(), reason: `Purchase #${validatedPurchase.invoiceId}`, amount: validatedPurchase.paidAmount, category: 'purchase' as const, timestamp: Date.now() };
+      if (purchase.paidAmount > 0) {
+         const expEntry = { id: crypto.randomUUID(), reason: `Purchase #${purchase.invoiceId}`, amount: purchase.paidAmount, category: 'purchase' as const, timestamp: Date.now() };
          setExpenses(prev => [...prev, expEntry]);
-         saveExpense(expEntry).catch(err => {
-           console.error(err);
-           notify('খরচ এন্ট্রি সেভ হয়নি', 'error');
-         });
-       }
+         saveExpense(expEntry).catch(console.error);
+      }
     }
     if (newSupplier) {
-      saveSupplier({ ...newSupplier, totalPurchase: validatedPurchase.finalAmount, totalDue: validatedPurchase.dueAmount }).catch(err => {
-        console.error(err);
-        notify('সাপ্লায়ার সেভ হয়নি', 'error');
-      });
+      saveSupplier({ ...newSupplier, totalPurchase: purchase.finalAmount, totalDue: purchase.dueAmount }).catch(console.error);
     } else {
-      setSuppliers(prev => {
-        const s = prev.find(x => x.id === supId);
-        if (s) {
-          saveSupplier(s).catch(err => {
-            console.error(err);
-            notify('সাপ্লায়ার আপডেট হয়নি', 'error');
-          });
-        }
-        return prev;
-      });
+      setSuppliers(prev => { const s = prev.find(x => x.id === supId); if (s) saveSupplier(s).catch(console.error); return prev; });
     }
-    saveActivityLog({ id: crypto.randomUUID(), userId: '', userName: 'System', action: `ক্রয় PUR-${validatedPurchase.invoiceId}`, details: `৳${validatedPurchase.finalAmount}`, timestamp: Date.now() }).catch(err => console.error(err));
+    saveActivityLog({ id: crypto.randomUUID(), userId: '', userName: 'System', action: `ক্রয় PUR-${purchase.invoiceId}`, details: `৳${purchase.finalAmount}`, timestamp: Date.now() }).catch(console.error);
     notify('স্টক আপডেট হয়েছে', 'success');
   }, [notify]);
 
-  const handleUpdateSale = useCallback((updatedSale: Sale) => {
-    setSales(prev => {
-      const oldSale = prev.find(s => s.id === updatedSale.id);
-      if (oldSale && updatedSale.paidAmount > oldSale.paidAmount) {
-        const delta = updatedSale.paidAmount - oldSale.paidAmount;
-        savePaymentAllocation({ invoiceId: updatedSale.id, invoiceType: 'sale', allocatedAmount: delta, receivedByName: 'Collection' }).catch(err => {
-          console.error(err);
-          notify('পেমেন্ট এলোকেশন সেভ হয়নি', 'error');
-        });
-      }
-      return prev.map(s => s.id === updatedSale.id ? updatedSale : s);
-    });
-    saveSale(updatedSale)
-      .then(() => notify('আপডেট হয়েছে', 'success'))
-      .catch(err => {
-        console.error(err);
-        notify('আপডেট হয়নি', 'error');
-      });
-  }, [notify]);
+  const handleUpdateSale = useCallback((updatedSale: Sale) => { setSales(prev => { const oldSale = prev.find(s => s.id === updatedSale.id); if (oldSale && updatedSale.paidAmount > oldSale.paidAmount) { const delta = updatedSale.paidAmount - oldSale.paidAmount; savePaymentAllocation({ invoiceId: updatedSale.id, invoiceType: 'sale', allocatedAmount: delta, receivedByName: 'Collection' }).catch(console.error); } return prev.map(s => s.id === updatedSale.id ? updatedSale : s); }); saveSale(updatedSale).catch(console.error); notify('আপডেট হয়েছে', 'success'); }, [notify]);
   const handleInventoryUpdate = useCallback((newInventory: ProductGroup[]) => { setInventory(newInventory); }, []);
   const handleDeleteSale = useCallback((saleId: string) => {
       setSales(prevSales => {
@@ -445,124 +355,54 @@ const App: React.FC = () => {
        }
        return prevSales.filter(s => s.id !== saleId);
     });
-    deleteSale(saleId)
-      .then(() => notify('ডিলিট হয়েছে', 'success'))
-      .catch(err => {
-        console.error(err);
-        notify('ডিলিট হয়নি', 'error');
-      });
+    deleteSale(saleId).catch(console.error);
+    notify('ডিলিট হয়েছে', 'success');
   }, [notify]);
   const handleReturnItem = useCallback((saleId: string, itemIndex: number, returnQty: number) => {
-    setSales(prevSales => prevSales.map(sale => {
-      if (sale.id !== saleId) return sale;
-      const newItems = [...sale.items];
-      const item = newItems[itemIndex];
-      if (!item) return sale;
-
-      const refundAmount = returnQty >= item.quantityPieces
-        ? item.subtotal
-        : Math.round((item.subtotal * returnQty) / item.quantityPieces);
-
-      if (item.groupId !== 'manual') {
-        setInventory(prevInv => prevInv.map(g => {
-          if (g.id !== item.groupId) return g;
-          const updatedVariants = g.variants.map(v => v.id === item.variantId ? { ...v, stockPieces: v.stockPieces + returnQty } : v);
-          const variant = g.variants.find(v => v.id === item.variantId);
-          if (variant) {
-            adjustVariantStock({ variantId: variant.id, qtyDelta: returnQty, minStock: 0 })
-              .then((updated) => saveStockMovement({
-                variantId: variant.id,
-                qtyChange: returnQty,
-                qtyAfter: updated.stockPieces,
-                costPerUnit: updated.avgCostPrice,
-                voucherType: 'return',
-                voucherId: sale.id,
-              }))
-              .catch(err => {
-                console.error(err);
-                notify('স্টক আপডেট হয়নি', 'error');
-              });
-          }
-          return { ...g, variants: updatedVariants };
-        }));
-      }
-
-      const newItemQty = item.quantityPieces - returnQty;
-      if (newItemQty <= 0) {
-        newItems.splice(itemIndex, 1);
-      } else {
-        newItems[itemIndex] = {
-          ...item,
-          quantityPieces: newItemQty,
-          subtotal: item.subtotal - refundAmount,
-          formattedQty: `${newItemQty} pcs (Ret ${returnQty})`,
-        };
-      }
-
-      const newSubTotal = newItems.reduce((sum, i) => sum + i.subtotal, 0);
-      const newFinalAmount = Math.max(0, newSubTotal - sale.discount);
-      const newPaidAmount = Math.max(0, sale.paidAmount - refundAmount);
-      const updatedRetSale: Sale = {
-        ...sale,
-        items: newItems,
-        subTotal: newSubTotal,
-        finalAmount: newFinalAmount,
-        paidAmount: newPaidAmount,
-        dueAmount: newFinalAmount - newPaidAmount,
-        paymentHistory: [...(sale.paymentHistory || []), { amount: -refundAmount, date: Date.now(), note: `Return ${returnQty}x ${item.name}` }],
-        note: `${sale.note || ''} | Ret: ${returnQty}`.trim(),
-      };
-      saveSale(updatedRetSale).catch(err => {
-        console.error(err);
-        notify('রিটার্ন সেভ হয়নি', 'error');
-      });
-      return updatedRetSale;
-    }));
-    notify('ফেরত নেওয়া হয়েছে', 'success');
+     setSales(prevSales => prevSales.map(sale => {
+        if (sale.id === saleId) {
+           const newItems = [...sale.items];
+           const item = newItems[itemIndex];
+           const refundAmount = returnQty >= item.quantityPieces
+             ? item.subtotal
+             : Math.round(item.subtotal * returnQty / item.quantityPieces);
+           if (item.groupId !== 'manual') {
+               setInventory(prevInv => prevInv.map(g => {
+                 if (g.id !== item.groupId) return g;
+                 const updatedVariants = g.variants.map(v => v.id === item.variantId ? {...v, stockPieces: v.stockPieces + returnQty} : v);
+                 const updatedG = { ...g, variants: updatedVariants };
+                 const variant = g.variants.find(v => v.id === item.variantId);
+                 if (variant) {
+                   adjustVariantStock({ variantId: variant.id, qtyDelta: returnQty, minStock: 0 })
+                     .then((updated) => saveStockMovement({
+                       variantId: variant.id,
+                       qtyChange: returnQty,
+                       qtyAfter: updated.stockPieces,
+                       costPerUnit: updated.averageCost,
+                       voucherType: 'return',
+                       voucherId: sale.id,
+                     }))
+                     .catch(console.error);
+                 }
+                 return updatedG;
+               }));
+            }
+           const newItemQty = item.quantityPieces - returnQty;
+           if (newItemQty <= 0) newItems.splice(itemIndex, 1);
+           else newItems[itemIndex] = { ...item, quantityPieces: newItemQty, subtotal: item.subtotal - refundAmount, formattedQty: `${newItemQty} pcs (Ret ${returnQty})` };
+           const newFinalAmount = sale.finalAmount - refundAmount;
+           const updatedRetSale = { ...sale, items: newItems, subTotal: sale.subTotal - refundAmount, finalAmount: newFinalAmount, dueAmount: newFinalAmount - sale.paidAmount, note: (sale.note || '') + ` | Ret: ${returnQty}` };
+           saveSale(updatedRetSale).catch(console.error);
+           return updatedRetSale;
+        }
+        return sale;
+     }));
+     notify('ফেরত নেওয়া হয়েছে', 'success');
   }, [notify]);
-  const handleStockEntry = useCallback((groupId: string, updatedVariants: ProductVariant[], log: StockLog) => {
-    setInventory(prev => {
-      const updated = prev.map(g => g.id === groupId ? { ...g, variants: updatedVariants } : g);
-      const updatedG = updated.find(g => g.id === groupId);
-      if (updatedG) {
-        saveProductGroup(updatedG)
-          .then(() => notify('স্টক যোগ হয়েছে', 'success'))
-          .catch(err => {
-            console.error(err);
-            notify('স্টক যোগ হয়নি', 'error');
-          });
-      }
-      return updated;
-    });
-    setStockLogs(prev => [log, ...prev]);
-  }, [notify]);
-  const handleGlobalCustomerUpdate = useCallback((oldName: string, oldPhone: string, newData: { name: string; phone: string; address?: string }) => {
-    setSales(prev => prev.map(s => {
-      if (s.customerName !== oldName || s.customerPhone !== oldPhone) return s;
-      const updated = { ...s, customerName: newData.name, customerPhone: newData.phone, customerAddress: newData.address || s.customerAddress };
-      saveSale(updated).catch(err => console.error(err));
-      return updated;
-    }));
-    notify('আপডেট হয়েছে', 'success');
-  }, [notify]);
-  const handleAddExpense = useCallback((expense: Expense) => {
-    setExpenses(prev => [expense, ...prev]);
-    saveExpense(expense)
-      .then(() => notify('খরচ যোগ হয়েছে', 'success'))
-      .catch(err => {
-        console.error(err);
-        notify('খরচ যোগ হয়নি', 'error');
-      });
-  }, [notify]);
-  const handleDeleteExpense = useCallback((id: string) => {
-    setExpenses(prev => prev.filter(e => e.id !== id));
-    dbDeleteExpense(id)
-      .then(() => notify('ডিলিট হয়েছে', 'success'))
-      .catch(err => {
-        console.error(err);
-        notify('ডিলিট হয়নি', 'error');
-      });
-  }, [notify]);
+  const handleStockEntry = useCallback((groupId: string, updatedVariants: any, log: StockLog) => { setInventory(prev => { const updated = prev.map(g => g.id === groupId ? { ...g, variants: updatedVariants } : g); const updatedG = updated.find(g => g.id === groupId); if (updatedG) saveProductGroup(updatedG).catch(console.error); return updated; }); setStockLogs(prev => [log, ...prev]); notify('স্টক যোগ হয়েছে', 'success'); }, [notify]);
+  const handleGlobalCustomerUpdate = useCallback((oldName: string, oldPhone: string, newData: any) => { setSales(prev => prev.map(s => { if (s.customerName !== oldName || s.customerPhone !== oldPhone) return s; const updated = { ...s, customerName: newData.name, customerPhone: newData.phone, customerAddress: newData.address || s.customerAddress }; saveSale(updated).catch(console.error); return updated; })); notify('আপডেট হয়েছে', 'success'); }, [notify]);
+  const handleAddExpense = useCallback((expense: Expense) => { setExpenses(prev => [expense, ...prev]); saveExpense(expense).catch(console.error); notify('খরচ যোগ হয়েছে', 'success'); }, [notify]);
+  const handleDeleteExpense = useCallback((id: string) => { setExpenses(prev => prev.filter(e => e.id !== id)); dbDeleteExpense(id).catch(console.error); notify('ডিলিট হয়েছে', 'success'); }, [notify]);
 
   // Wait for Supabase to check localStorage for existing session (brief, ~50ms)
   if (!isAuthChecked) return <div className="min-h-screen flex items-center justify-center font-bangla"><Loader2 className="w-10 h-10 text-blue-600 animate-spin"/></div>;
@@ -587,13 +427,11 @@ const App: React.FC = () => {
     );
   }
 
-  // Use secure admin hook with server-side verification
-  const { isAdmin, isLoading: isAdminLoading, hasPermission } = useAdmin(currentUser);
+  const isAdmin = currentUser.role === 'admin';
 
   // --- Compact Sidebar Nav Button ---
-  const NavButton = React.memo(({ tab, icon: Icon, label, restricted, requiredPermission }: any) => {
+  const NavButton = React.memo(({ tab, icon: Icon, label, restricted }: any) => {
     if (restricted && !isAdmin) return null;
-    if (requiredPermission && !hasPermission(requiredPermission)) return null;
     return (
       <button
         onClick={() => { setActiveTab(tab); setIsMobileMenuOpen(false); }}
@@ -648,10 +486,10 @@ const App: React.FC = () => {
                <>
                <div className="my-2 border-t border-slate-100"></div>
                {!isSidebarCollapsed && <p className="px-3 text-[10px] font-bold text-slate-400 uppercase mb-1">Admin</p>}
-                <NavButton tab="reports" icon={PieChart} label={t('reports')} restricted={true} requiredPermission="view_reports" />
-                <NavButton tab="salary" icon={UserCircle} label={t('salary')} restricted={true} requiredPermission="manage_salary" />
-                <NavButton tab="logs" icon={History} label={t('logs')} restricted={true} requiredPermission="view_logs" />
-                <NavButton tab="settings" icon={Settings} label={t('settings')} restricted={true} requiredPermission="manage_settings" />
+               <NavButton tab="reports" icon={PieChart} label={t('reports')} restricted={true} />
+               <NavButton tab="salary" icon={UserCircle} label={t('salary')} restricted={true} />
+               <NavButton tab="logs" icon={History} label={t('logs')} restricted={true} />
+               <NavButton tab="settings" icon={Settings} label={t('settings')} restricted={true} />
                </>
             )}
           </nav>
@@ -701,9 +539,9 @@ const App: React.FC = () => {
              {activeTab === 'dashboard' && <MemoDashboard inventory={inventory} sales={sales} expenses={expenses} />}
              {activeTab === 'pos' && <MemoPOS inventory={inventory} onCompleteSale={handleCompleteSale} settings={settings} sales={sales} />}
              {activeTab === 'purchase' && <MemoPurchase inventory={inventory} suppliers={suppliers} onCompletePurchase={handleCompletePurchase} settings={settings} />}
-             {activeTab === 'history' && <MemoSalesHistory sales={sales} onUpdateSale={handleUpdateSale} onDeleteSale={handleDeleteSale} onReturnItem={handleReturnItem} inventory={inventory} setInventory={handleInventoryUpdate} settings={settings} />}
-              {activeTab === 'inventory' && <MemoInventory inventory={inventory} inventoryById={inventoryById} variantIndexByGroup={variantIndexByGroup} setInventory={setInventory} settings={settings} setSettings={setSettings} stockLogs={stockLogs} onStockAdd={handleStockEntry} currentUser={currentUser} />}
-              {activeTab === 'ledger' && <MemoLedger sales={sales} salesById={salesById} onUpdateSale={handleUpdateSale} onAddNewSale={handleCompleteSale} onReturnItem={handleReturnItem} />}
+             {activeTab === 'history' && <MemoSalesHistory sales={sales} onUpdateSale={handleUpdateSale} onDeleteSale={handleDeleteSale} inventory={inventory} setInventory={handleInventoryUpdate} settings={settings} />}
+             {activeTab === 'inventory' && <MemoInventory inventory={inventory} setInventory={setInventory} settings={settings} setSettings={setSettings} stockLogs={stockLogs} onStockAdd={handleStockEntry} currentUser={currentUser} />}
+             {activeTab === 'ledger' && <MemoLedger sales={sales} onUpdateSale={handleUpdateSale} onAddNewSale={handleCompleteSale} onReturnItem={handleReturnItem} />}
              {activeTab === 'customers' && <MemoCustomers sales={sales} onUpdateCustomer={handleGlobalCustomerUpdate} />}
              {activeTab === 'suppliers' && <MemoSupplierManager suppliers={suppliers} onAddSupplier={(s) => setSuppliers(prev => [...prev, s])} />}
              {activeTab === 'expenses' && <MemoExpenses expenses={expenses} onAddExpense={handleAddExpense} onDeleteExpense={handleDeleteExpense} />}
@@ -716,34 +554,21 @@ const App: React.FC = () => {
                      employees={employees} 
                      salaryRecords={salaryRecords} 
                      attendance={attendance}
-                      onAddEmployee={(e) => {
-                        setEmployees(prev => [...prev, e]);
-                        saveEmployee(e).catch(err => {
-                          console.error(err);
-                          notify('কর্মচারী সেভ হয়নি', 'error');
+                     onAddEmployee={(e) => { setEmployees(prev => [...prev, e]); saveEmployee(e).catch(console.error); }} 
+                     onAddRecord={(r) => {
+                       setSalaryRecords(prev => [...prev, r]);
+                       saveSalaryRecord(r).catch(console.error);
+                       saveActivityLog({ id: crypto.randomUUID(), userId: '', userName: 'System', action: `বেতন - ${r.employeeName}`, details: `৳${r.amount}`, timestamp: Date.now() }).catch(console.error);
+                       handleAddExpense({ id: crypto.randomUUID(), reason: `Salary - ${r.employeeName}`, amount: r.amount, category: 'salary', timestamp: r.date });
+                     }}
+                     onUpdateAttendance={(r) => {
+                        setAttendance(prev => {
+                           const idx = prev.findIndex(a => a.employeeId === r.employeeId && a.date === r.date);
+                           const newAtt = [...prev];
+                           if(idx>=0) newAtt[idx] = r; else newAtt.push(r);
+                           return newAtt;
                         });
-                      }} 
-                      onAddRecord={(r) => {
-                        setSalaryRecords(prev => [...prev, r]);
-                        saveSalaryRecord(r).catch(err => {
-                          console.error(err);
-                          notify('বেতন রেকর্ড সেভ হয়নি', 'error');
-                        });
-                        saveActivityLog({ id: crypto.randomUUID(), userId: '', userName: 'System', action: `বেতন - ${r.employeeName}`, details: `৳${r.amount}`, timestamp: Date.now() }).catch(err => console.error(err));
-                        handleAddExpense({ id: crypto.randomUUID(), reason: `Salary - ${r.employeeName}`, amount: r.amount, category: 'salary', timestamp: r.date });
-                      }}
-                      onUpdateAttendance={(r) => {
-                         setAttendance(prev => {
-                            const idx = prev.findIndex(a => a.employeeId === r.employeeId && a.date === r.date);
-                            const newAtt = [...prev];
-                            if(idx>=0) newAtt[idx] = r; else newAtt.push(r);
-                            return newAtt;
-                         });
-                         saveAttendance(r).catch(err => {
-                           console.error(err);
-                           notify('হাজিরা সেভ হয়নি', 'error');
-                         });
-                      }}
+                     }}
                      currentUser={currentUser}
                    />
                 )}
