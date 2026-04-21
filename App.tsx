@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { App as CapApp } from '@capacitor/app';
 import { LanguageContext, ToastContext } from './lib/contexts';
 import { Dashboard } from './components/Dashboard';
 import { Inventory } from './components/Inventory';
@@ -200,6 +201,14 @@ const App: React.FC = () => {
   useEffect(() => { if (isDataLoaded) debounceSync('users', () => saveUsers(users)); }, [users, isDataLoaded, debounceSync]);
   useEffect(() => { if (isDataLoaded) debounceSync('inventory', () => saveInventory(inventory)); }, [inventory, isDataLoaded, debounceSync]);
   useEffect(() => { if (isDataLoaded) debounceSync('suppliers', () => Promise.all(suppliers.map(saveSupplier)).then(() => {})); }, [suppliers, isDataLoaded, debounceSync]);
+
+  useEffect(() => {
+    const listener = CapApp.addListener('backButton', ({ canGoBack }) => {
+      if (!canGoBack) CapApp.exitApp();
+      else window.history.back();
+    });
+    return () => { listener.then(h => h.remove()); };
+  }, []);
 
   // --- Helpers ---
   const t = useCallback((key: string) => translations[key]?.[lang] || key, [lang]);
