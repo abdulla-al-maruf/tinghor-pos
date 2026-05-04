@@ -15,6 +15,16 @@ dist-ssr
 # Sensitive local config
 .mcp.json
 .claude/
+.kilo/
+
+# Supabase temp files
+supabase/.temp/
+
+# Build artifacts
+*.tsbuildinfo
+
+# Sandbox copies
+sandbox/
 
 # Editor directories and files
 .vscode/*

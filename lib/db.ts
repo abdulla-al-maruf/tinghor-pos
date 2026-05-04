@@ -32,7 +32,10 @@ export async function loadSettings(): Promise<StoreSettings | null> {
 }
 
 export async function saveSettings(settings: StoreSettings): Promise<void> {
-  const { data, error } = await supabase.from('store_settings').update({
+  const { data: existing } = await supabase.from('store_settings').select('id').limit(1);
+  if (!existing || existing.length === 0) throw new Error('saveSettings: no store_settings row found');
+  const rowId = existing[0].id;
+  const { error } = await supabase.from('store_settings').update({
     shop_name: settings.shopName,
     shop_phone: settings.shopPhone,
     shop_address: settings.shopAddress,
@@ -43,9 +46,8 @@ export async function saveSettings(settings: StoreSettings): Promise<void> {
     custom_fields: settings.customFields,
     next_invoice_id: settings.nextInvoiceId,
     updated_at: new Date().toISOString(),
-  }).not('id', 'is', null).select('id');
+  }).eq('id', rowId);
   if (error) throw new Error(`saveSettings: ${error.message}`);
-  if (!data || data.length === 0) throw new Error('saveSettings: no store_settings row found — run the database migration first');
 }
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
@@ -183,7 +185,7 @@ export async function loadInventory(): Promise<ProductGroup[]> {
     brand: g.brand,
     color: g.color,
     thickness: g.thickness,
-    type: g.calc_mode,
+    type: g.calculation_mode,
     customValues: g.custom_values ?? {},
     variants: (g.product_variants ?? []).map((v: any) => ({
       id: v.id,
@@ -204,7 +206,7 @@ export async function saveProductGroup(group: ProductGroup): Promise<void> {
     brand: group.brand,
     color: group.color,
     thickness: group.thickness,
-    calc_mode: group.type,
+    calculation_mode: group.type,
     custom_values: group.customValues ?? {},
     updated_at: new Date().toISOString(),
   });
@@ -270,13 +272,13 @@ export async function loadSales(): Promise<Sale[]> {
     items: (s.sale_items ?? []).map((item: any) => ({
       groupId: item.group_id ?? 'manual',
       variantId: item.variant_id ?? '',
-      name: item.product_name,
+      name: item.name ?? item.product_name ?? 'Unknown',
       lengthFeet: item.length_feet ?? 0,
       calculationBase: item.calculation_base,
-      quantityPieces: item.qty_pieces,
+      quantityPieces: item.quantity_pieces,
       formattedQty: item.formatted_qty ?? '',
       priceUnit: item.price_unit,
-      buyPriceUnit: item.cost_price,
+      buyPriceUnit: item.buy_price_unit,
       subtotal: item.subtotal,
       unitType: item.unit_type ?? '',
       costPriceSnapshot: item.cost_price_snapshot ?? 0,
@@ -289,12 +291,13 @@ export async function loadSales(): Promise<Sale[]> {
     paymentHistory: paymentMap[s.id] ?? [],
     timestamp: new Date(s.created_at).getTime(),
     deliveryStatus: s.delivery_status,
-    soldBy: s.sold_by_name ?? '',
+    soldBy: s.sold_by ?? '',
     note: s.note ?? '',
   }));
 }
 
 export async function saveSale(sale: Sale): Promise<void> {
+  const ts = sale.timestamp;
   const { error } = await supabase.from('sales').upsert({
     id: sale.id,
     invoice_id: sale.invoiceId,
@@ -308,28 +311,42 @@ export async function saveSale(sale: Sale): Promise<void> {
     due_amount: sale.dueAmount,
     delivery_status: sale.deliveryStatus,
     status: 'confirmed',
-    sold_by_name: sale.soldBy,
+    sold_by: sale.soldBy,
     note: sale.note ?? '',
-    posting_date: new Date(sale.timestamp).toISOString().split('T')[0],
+    timestamp: ts,
+    posting_date: new Date(ts).toISOString().split('T')[0],
     updated_at: new Date().toISOString(),
   });
   if (error) throw new Error(`saveSale: ${error.message}`);
 
-  // Delete old items and re-insert (simplest approach for updates)
+  // Preserve existing cost snapshots before re-inserting items
+  const { data: existingItems } = await supabase
+    .from('sale_items')
+    .select('variant_id, cost_price_snapshot')
+    .eq('sale_id', sale.id);
+  const oldSnapshotMap: Record<string, number> = {};
+  if (existingItems) {
+    for (const ei of existingItems) {
+      if (ei.variant_id) oldSnapshotMap[ei.variant_id] = ei.cost_price_snapshot ?? 0;
+    }
+  }
+
+  // Delete old items and re-insert
   const { error: delError } = await supabase.from('sale_items').delete().eq('sale_id', sale.id);
   if (delError) throw new Error(`saveSale items delete: ${delError.message}`);
+
   if (sale.items.length > 0) {
-    // Fetch current avg_cost_price for each variant to snapshot
-    const variantIds = sale.items
-      .filter(i => i.variantId && i.groupId !== 'manual')
+    // For NEW variants (no old snapshot), fetch current avg cost
+    const newVariantIds = sale.items
+      .filter(i => i.variantId && i.groupId !== 'manual' && !oldSnapshotMap[i.variantId])
       .map(i => i.variantId);
 
-    let costMap: Record<string, number> = {};
-    if (variantIds.length > 0) {
+    let costMap: Record<string, number> = { ...oldSnapshotMap };
+    if (newVariantIds.length > 0) {
       const { data: variants } = await supabase
         .from('product_variants')
         .select('id, avg_cost_price')
-        .in('id', variantIds);
+        .in('id', newVariantIds);
       if (variants) {
         for (const v of variants) {
           costMap[v.id] = v.avg_cost_price ?? 0;
@@ -340,15 +357,15 @@ export async function saveSale(sale: Sale): Promise<void> {
     const { error: insertError } = await supabase.from('sale_items').insert(
       sale.items.map(item => ({
         sale_id: sale.id,
-        group_id: item.groupId === 'manual' ? null : item.groupId,
+        group_id: item.groupId || 'manual',
         variant_id: item.variantId || null,
-        product_name: item.name,
+        name: item.name,
         length_feet: item.lengthFeet,
         calculation_base: item.calculationBase,
-        qty_pieces: item.quantityPieces,
+        quantity_pieces: item.quantityPieces,
         formatted_qty: item.formattedQty,
         price_unit: item.priceUnit,
-        cost_price: item.buyPriceUnit ?? 0,
+        buy_price_unit: item.buyPriceUnit ?? 0,
         subtotal: item.subtotal,
         unit_type: item.unitType,
         is_manual: item.groupId === 'manual',
@@ -360,11 +377,30 @@ export async function saveSale(sale: Sale): Promise<void> {
 }
 
 export async function deleteSale(id: string): Promise<void> {
-  // Delete child rows first to respect FK constraint
   const { error: itemsError } = await supabase.from('sale_items').delete().eq('sale_id', id);
   if (itemsError) throw new Error(`deleteSale items: ${itemsError.message}`);
   const { error } = await supabase.from('sales').delete().eq('id', id);
   if (error) throw new Error(`deleteSale: ${error.message}`);
+}
+
+// ─── SALE EDIT LOGS ──────────────────────────────────────────────────────────
+
+export async function saveSaleEditLog(params: {
+  saleId: string;
+  editedBy: string;
+  fieldChanged: string;
+  oldValue: unknown;
+  newValue: unknown;
+}): Promise<void> {
+  const { error } = await supabase.from('sale_edit_logs').insert({
+    sale_id: params.saleId,
+    edited_by: params.editedBy,
+    field_changed: params.fieldChanged,
+    old_value: JSON.stringify(params.oldValue),
+    new_value: JSON.stringify(params.newValue),
+    edited_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`saveSaleEditLog: ${error.message}`);
 }
 
 // ─── PURCHASES ───────────────────────────────────────────────────────────────
@@ -383,10 +419,10 @@ export async function loadPurchases(): Promise<Purchase[]> {
     items: (p.purchase_items ?? []).map((item: any) => ({
       groupId: item.group_id ?? '',
       variantId: item.variant_id ?? '',
-      name: item.product_name,
+      name: item.name ?? item.product_name ?? 'Unknown',
       lengthFeet: item.length_feet ?? 0,
       calculationBase: item.calculation_base,
-      quantityPieces: item.qty_pieces,
+      quantityPieces: item.quantity_pieces,
       formattedQty: item.formatted_qty ?? '',
       priceUnit: item.price_unit,
       buyPriceUnit: item.price_unit,
@@ -405,6 +441,7 @@ export async function loadPurchases(): Promise<Purchase[]> {
 }
 
 export async function savePurchase(purchase: Purchase): Promise<void> {
+  const ts = purchase.timestamp;
   const { error } = await supabase.from('purchases').upsert({
     id: purchase.id,
     invoice_id: purchase.invoiceId,
@@ -418,7 +455,8 @@ export async function savePurchase(purchase: Purchase): Promise<void> {
     status: 'confirmed',
     purchased_by_name: purchase.purchasedBy,
     note: purchase.note ?? '',
-    posting_date: new Date(purchase.timestamp).toISOString().split('T')[0],
+    timestamp: ts,
+    posting_date: new Date(ts).toISOString().split('T')[0],
     updated_at: new Date().toISOString(),
   });
   if (error) throw new Error(`savePurchase: ${error.message}`);
@@ -431,10 +469,10 @@ export async function savePurchase(purchase: Purchase): Promise<void> {
         purchase_id: purchase.id,
         group_id: item.groupId || null,
         variant_id: item.variantId || null,
-        product_name: item.name,
+        name: item.name,
         length_feet: item.lengthFeet,
         calculation_base: item.calculationBase,
-        qty_pieces: item.quantityPieces,
+        quantity_pieces: item.quantityPieces,
         formatted_qty: item.formattedQty,
         price_unit: item.priceUnit,
         subtotal: item.subtotal,
@@ -444,6 +482,7 @@ export async function savePurchase(purchase: Purchase): Promise<void> {
     if (insertError) throw new Error(`savePurchase items insert: ${insertError.message}`);
 
     // Weighted Average Cost recalculation for each purchased variant
+    // Uses atomic adjustVariantStock to avoid double calculation with caller
     for (const item of purchase.items) {
       if (!item.variantId) continue;
       const { data: variant, error: varError } = await supabase
@@ -451,7 +490,7 @@ export async function savePurchase(purchase: Purchase): Promise<void> {
         .select('stock_pieces, avg_cost_price')
         .eq('id', item.variantId)
         .single();
-      if (varError || !variant) continue;
+      if (varError || !variant) throw new Error(`savePurchase: variant ${item.variantId} not found`);
 
       const currentStock = variant.stock_pieces ?? 0;
       const currentAvgCost = variant.avg_cost_price ?? 0;
@@ -470,7 +509,7 @@ export async function savePurchase(purchase: Purchase): Promise<void> {
         .update({ avg_cost_price: newAvgCost })
         .eq('id', item.variantId);
       if (updateError) {
-        console.error(`Failed to update avg_cost_price for variant ${item.variantId}:`, updateError.message);
+        throw new Error(`savePurchase: avg_cost update failed for ${item.variantId}: ${updateError.message}`);
       }
     }
   }
@@ -519,25 +558,28 @@ export async function loadExpenses(): Promise<Expense[]> {
     reason: e.reason,
     amount: e.amount,
     category: e.category,
-    timestamp: new Date(e.created_at).getTime(),
+    timestamp: e.timestamp ? new Date(e.timestamp).getTime() : new Date(e.created_at).getTime(),
     addedBy: e.added_by_name ?? '',
   }));
 }
 
 export async function saveExpense(expense: Expense): Promise<void> {
+  const ts = expense.timestamp;
   const { error } = await supabase.from('expenses').upsert({
     id: expense.id,
     reason: expense.reason,
     amount: expense.amount,
     category: expense.category,
+    timestamp: ts,
     added_by_name: expense.addedBy ?? '',
-    posting_date: new Date(expense.timestamp).toISOString().split('T')[0],
+    posting_date: new Date(ts).toISOString().split('T')[0],
   });
   if (error) throw new Error(`saveExpense: ${error.message}`);
 }
 
 export async function deleteExpense(id: string): Promise<void> {
-  await supabase.from('expenses').delete().eq('id', id);
+  const { error } = await supabase.from('expenses').delete().eq('id', id);
+  if (error) throw new Error(`deleteExpense: ${error.message}`);
 }
 
 // ─── EMPLOYEES ───────────────────────────────────────────────────────────────
@@ -551,7 +593,7 @@ export async function loadEmployees(): Promise<Employee[]> {
     phone: e.phone ?? '',
     designation: e.designation ?? '',
     baseSalary: e.base_salary,
-    joinedDate: e.joined_date ? new Date(e.joined_date).getTime() : Date.now(),
+    joinedDate: e.joined_date ? Number(e.joined_date) : Date.now(),
   }));
 }
 
@@ -562,7 +604,7 @@ export async function saveEmployee(employee: Employee): Promise<void> {
     phone: employee.phone,
     designation: employee.designation,
     base_salary: employee.baseSalary,
-    joined_date: new Date(employee.joinedDate).toISOString().split('T')[0],
+    joined_date: employee.joinedDate,
     updated_at: new Date().toISOString(),
   });
   if (error) throw new Error(`saveEmployee: ${error.message}`);
@@ -590,6 +632,7 @@ export async function loadSalaryRecords(): Promise<SalaryRecord[]> {
 }
 
 export async function saveSalaryRecord(record: SalaryRecord): Promise<void> {
+  const ts = record.date;
   const { error } = await supabase.from('salary_records').upsert({
     id: record.id,
     employee_id: record.employeeId,
@@ -598,8 +641,9 @@ export async function saveSalaryRecord(record: SalaryRecord): Promise<void> {
     type: record.type,
     for_month: record.forMonth,
     for_year: record.forYear,
+    date: ts,
     note: record.note ?? '',
-    posting_date: new Date(record.date).toISOString().split('T')[0],
+    posting_date: new Date(ts).toISOString().split('T')[0],
   });
   if (error) throw new Error(`saveSalaryRecord: ${error.message}`);
 }
@@ -612,13 +656,15 @@ export async function savePaymentAllocation(params: {
   allocatedAmount: number;
   receivedByName?: string;
 }): Promise<void> {
+  const now = Date.now();
   const { error } = await supabase.from('payment_allocations').insert({
     id: crypto.randomUUID(),
     invoice_id: params.invoiceId,
     invoice_type: params.invoiceType,
     allocated_amount: params.allocatedAmount,
     received_by_name: params.receivedByName ?? '',
-    payment_date: new Date().toISOString().split('T')[0],
+    date: now,
+    payment_date: new Date(now).toISOString().split('T')[0],
   });
   if (error) throw new Error(`savePaymentAllocation: ${error.message}`);
 }
@@ -635,6 +681,7 @@ export async function saveStockMovement(params: {
   note?: string;
   createdByName?: string;
 }): Promise<void> {
+  const now = Date.now();
   const { error } = await supabase.from('stock_movements').insert({
     variant_id: params.variantId,
     qty_change: params.qtyChange,
@@ -644,7 +691,7 @@ export async function saveStockMovement(params: {
     voucher_id: params.voucherId ?? null,
     note: params.note ?? '',
     created_by_name: params.createdByName ?? '',
-    posting_date: new Date().toISOString().split('T')[0],
+    posting_date: new Date(now).toISOString().split('T')[0],
   });
   if (error) throw new Error(`saveStockMovement: ${error.message}`);
 }
@@ -736,12 +783,15 @@ export async function loadActivityLogs(): Promise<ActivityLog[]> {
 }
 
 export async function saveActivityLog(log: ActivityLog): Promise<void> {
+  const ts = log.timestamp;
   const { error } = await supabase.from('activity_logs').insert({
     id: log.id,
     user_id: log.userId,
     user_name: log.userName,
     action: log.action,
     details: log.details,
+    timestamp: ts,
+    posting_date: new Date(ts).toISOString().split('T')[0],
   });
   if (error) throw new Error(`saveActivityLog: ${error.message}`);
 }

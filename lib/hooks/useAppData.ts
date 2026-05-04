@@ -53,7 +53,7 @@ interface UseAppDataReturn {
 
 export function useAppData({ currentUser, isDataLoaded, onDataLoaded }: UseAppDataDeps): UseAppDataReturn {
   const [settings, setSettings] = useState<StoreSettings>({
-    brands: [], colors: [], thicknesses: [], productTypes: [], customFields: [], nextInvoiceId: 1001,
+    shopName: 'টিনঘর.কম', shopPhone: '', shopAddress: '', brands: [], colors: [], thicknesses: [], productTypes: [], customFields: [], nextInvoiceId: 1001,
   });
   const [users, setUsers] = useState<User[]>([]);
   const [inventory, setInventory] = useState<ProductGroup[]>([]);

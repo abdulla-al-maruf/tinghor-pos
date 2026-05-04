@@ -6,6 +6,24 @@ import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
 import { recalcAvgCost } from '../lib/pricing';
 
+interface StockEntryInput {
+  length: number;
+  base: number;
+  buyPrice: number;
+  qtyInput: string;
+  qtyMode: 'bundle' | 'piece';
+}
+
+interface ProductGroupCardProps {
+  group: ProductGroup;
+  isExpanded: boolean;
+  onToggleExpand: (id: string | null) => void;
+  onDeleteGroup: (group: ProductGroup) => void;
+  onStockUpdate: (groupId: string, groupType: CalculationMode, stockEntry: StockEntryInput) => void;
+  inputStyle: string;
+  variantIndexByGroup?: Record<string, Record<number, ProductVariant>>;
+}
+
 interface InventoryProps {
   inventory: ProductGroup[];
   inventoryById?: Record<string, ProductGroup>; // Optional indexed map for O(1) lookups
@@ -27,11 +45,11 @@ const ProductGroupCard = React.memo(({
   onStockUpdate, 
   inputStyle,
   variantIndexByGroup // Pass the variant index down
-}: any) => {
-  const [stockEntry, setStockEntry] = useState({
+}: ProductGroupCardProps) => {
+  const [stockEntry, setStockEntry] = useState<StockEntryInput>({
     length: 6,
     base: 72,
-    buyPrice: 0, 
+    buyPrice: 0,
     qtyInput: '',
     qtyMode: 'bundle'
   });
@@ -39,7 +57,11 @@ const ProductGroupCard = React.memo(({
 
   const getBundleDisplay = (g: ProductGroup, v: ProductVariant) => {
      if (g.type === 'tin_bundle' && v.calculationBase) {
-       return ((v.stockPieces * v.lengthFeet) / v.calculationBase).toFixed(2) + ' বান';
+       const pcsPerBan = v.calculationBase / v.lengthFeet;
+       const pcs = v.stockPieces;
+       const bundles = Math.floor(pcs / pcsPerBan);
+       const remainder = Math.round(pcs % pcsPerBan);
+       return bundles + ' বান ' + remainder + ' পিস';
      }
      return '-';
   };
@@ -193,14 +215,14 @@ const ProductGroupCard = React.memo(({
                 </tr>
               </thead>
               <tbody className="text-slate-700 text-sm divide-y divide-slate-50">
-                {group.variants.map((v: any) => (
+                {group.variants.map((v: ProductVariant) => (
                   <tr key={v.id} className="hover:bg-blue-50/50 transition">
                     <td className="p-3 font-bold">{v.lengthFeet}'</td>
                     {group.type === 'tin_bundle' && <td className="p-3 text-slate-400 text-xs">{v.calculationBase}</td>}
                     <td className="p-3 text-center">
-                       <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-bold text-xs">{v.stockPieces}</span>
+                        <span className={`px-2 py-0.5 rounded font-bold text-xs ${v.stockPieces < 0 ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>{v.stockPieces}</span>
                     </td>
-                    {group.type === 'tin_bundle' ? <td className="p-3 text-center text-slate-500 text-xs">{getBundleDisplay(group, v)}</td> : group.type === 'tin_bundle' ? null : <td className="p-3 text-center">-</td>}
+                    {group.type === 'tin_bundle' ? <td className="p-3 text-center text-slate-500 text-xs">{getBundleDisplay(group, v)}</td> : <td className="p-3 text-center">-</td>}
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         {showCost[v.id] ? <span className="font-mono font-bold text-xs">৳{(v.avgCostPrice || 0).toFixed(2)}</span> : <span className="text-slate-300 text-[10px]">Hidden</span>}
@@ -283,7 +305,7 @@ export const Inventory: React.FC<InventoryProps> = ({
     notify("নতুন ক্যাটাগরি তৈরি হয়েছে", "success");
   };
 
-  const handleStockUpdate = (groupId: string, groupType: CalculationMode, stockEntry: any) => {
+  const handleStockUpdate = (groupId: string, groupType: CalculationMode, stockEntry: StockEntryInput) => {
     const qty = Number(stockEntry.qtyInput);
     const incomingRate = Number(stockEntry.buyPrice);
 

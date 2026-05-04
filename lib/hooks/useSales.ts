@@ -50,14 +50,14 @@ export function useSales({ settings, currentUser, notify }: UseSalesDeps): UseSa
         for (const item of sale.items) {
           if (item.variantId) {
             await reserveStock({ variantId: item.variantId, qty: item.quantityPieces, saleId: saleWithMeta.id });
-            await saveStockMovement(createStockMovementEntry({
+            await saveStockMovement({
               variantId: item.variantId,
-              qtyChange: 0,
+              qtyChange: -item.quantityPieces,
               qtyAfter: 0,
               costPerUnit: 0,
               voucherType: 'sale',
               voucherId: saleWithMeta.id,
-            }));
+            });
           }
         }
       } catch (err) {
@@ -140,7 +140,7 @@ export function useSales({ settings, currentUser, notify }: UseSalesDeps): UseSa
                 variantId: item.variantId,
                 qtyChange: returnQty,
                 qtyAfter: updated.stockPieces,
-                costPerUnit: updated.averageCost,
+                 costPerUnit: updated.avgCostPrice,
                 voucherType: 'return',
                 voucherId: sale.id,
               })))

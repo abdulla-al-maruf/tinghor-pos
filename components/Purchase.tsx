@@ -171,7 +171,7 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
     }
 
     onCompletePurchase({
-      id: Date.now().toString(),
+      id: generateId(),
       invoiceId: vendorInvoiceNo || 'AUTO',
       supplierId: isNewSupplier && newSupplier ? newSupplier.id : selectedSupplierId,
       supplierName,
@@ -320,12 +320,12 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
                       <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">
                          {getPriceLabel()}
                       </label>
-                      <input type="number" className="w-full p-2.5 rounded-lg bg-slate-800 border border-slate-600 text-white font-bold text-sm outline-none" placeholder="Cost" value={costRate} onChange={e => setCostRate(e.target.value)} />
+                      <input type="number" className="w-full p-2.5 rounded-lg bg-slate-800 border border-slate-600 text-white font-bold text-sm outline-none" placeholder="মূল্য" value={costRate} onChange={e => setCostRate(e.target.value)} />
                     </div>
 
                     <div className="w-32 shrink-0 relative">
                       <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">পরিমাণ (Pcs)</label>
-                      <input type="number" className="w-full p-2.5 rounded-lg bg-white text-slate-900 font-bold text-sm outline-none" placeholder="Qty" value={quantity} onChange={e => setQuantity(e.target.value)} />
+                      <input type="number" className="w-full p-2.5 rounded-lg bg-white text-slate-900 font-bold text-sm outline-none" placeholder="পরিমাণ" value={quantity} onChange={e => setQuantity(e.target.value)} />
                       {targetGroup?.type === 'tin_bundle' && (
                           <div className="absolute right-1 top-[22px] flex bg-slate-200 rounded p-0.5">
                              <button onClick={() => setUnitMode('bundle')} className={`px-1.5 py-0.5 text-[9px] font-bold rounded transition ${unitMode === 'bundle' ? 'bg-orange-600 text-white' : 'text-slate-500'}`}>বান</button>
@@ -362,7 +362,7 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
                   </div>
                   <div className="flex justify-between items-center text-xs text-slate-500">
                      <span className="bg-slate-100 px-1.5 py-0.5 rounded">{item.formattedQty}</span>
-                     <span>Cost/Pc: ৳{item.priceUnit.toFixed(2)}</span>
+                     <span>মূল্য/পিস: ৳{item.priceUnit}</span>
                   </div>
                   <button onClick={() => removeFromCart(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition"><Trash className="w-3 h-3" /></button>
                </div>
@@ -399,7 +399,7 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
            
            <div className="mt-3 grid grid-cols-2 gap-3">
               <div><label className="text-[9px] font-bold text-emerald-600 uppercase block mb-1">নগদ প্রদান</label><input type="number" className="w-full p-2 rounded-lg border border-emerald-200 font-bold text-emerald-700 outline-none" value={paidAmount} onChange={e => setPaidAmount(e.target.value)} placeholder="0" /></div>
-              <div className="text-right flex flex-col justify-center"><span className="text-[9px] font-bold text-red-500 uppercase block">বাকি (Due)</span><span className="text-lg font-bold text-red-600 block">৳{(cartFinal - (Number(paidAmount)||0)).toLocaleString()}</span></div>
+              <div className="text-right flex flex-col justify-center"><span className="text-[9px] font-bold text-red-500 uppercase block">বাকি</span><span className="text-lg font-bold text-red-600 block">৳{(cartFinal - (Number(paidAmount)||0)).toLocaleString()}</span></div>
            </div>
 
            <button onClick={handleCheckout} disabled={cart.length === 0} className="w-full mt-4 bg-slate-800 text-white py-3 rounded-xl font-bold text-sm hover:bg-slate-900 shadow-xl transition flex justify-center gap-2 items-center disabled:bg-slate-300">

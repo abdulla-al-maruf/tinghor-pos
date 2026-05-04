@@ -181,34 +181,34 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
             {isAddingItem && settings && (
               <div className="p-4 bg-white animate-fade-in grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
                 <div className="col-span-2">
-                  <label className="text-[10px] font-bold uppercase block mb-1">Type</label>
+                  <label className="text-[10px] font-bold uppercase block mb-1">ধরন</label>
                   <select className="w-full p-2 border rounded text-sm" value={selProductType} onChange={e => { setSelProductType(e.target.value); setSelBrand(''); }}>
                     {settings.productTypes.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
                 <div className="col-span-2">
-                  <label className="text-[10px] font-bold uppercase block mb-1">Brand</label>
+                  <label className="text-[10px] font-bold uppercase block mb-1">ব্র্যান্ড</label>
                   <select className="w-full p-2 border rounded text-sm" value={selBrand} onChange={e => setSelBrand(e.target.value)}>
-                    <option value="">Select...</option>
+                    <option value="">নির্বাচন...</option>
                     {brands.map(b => <option key={b} value={b}>{b}</option>)}
                   </select>
                 </div>
                 <div className="col-span-2">
-                  <label className="text-[10px] font-bold uppercase block mb-1">Size</label>
+                  <label className="text-[10px] font-bold uppercase block mb-1">সাইজ</label>
                   <select className="w-full p-2 border rounded text-sm" value={selSize || ''} onChange={e => setSelSize(Number(e.target.value))}>
-                    <option value="">Select...</option>
+                    <option value="">নির্বাচন...</option>
                     {sizes.map(s => <option key={s} value={s}>{s}'</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold uppercase block mb-1">Qty</label>
+                  <label className="text-[10px] font-bold uppercase block mb-1">পরিমাণ</label>
                   <input type="number" className="w-full p-2 border rounded text-sm" placeholder="0" value={addQty} onChange={e => setAddQty(e.target.value)} />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold uppercase block mb-1">Rate</label>
+                  <label className="text-[10px] font-bold uppercase block mb-1">দর</label>
                   <input type="number" className="w-full p-2 border rounded text-sm" placeholder="0" value={addRate} onChange={e => setAddRate(e.target.value)} />
                 </div>
-                <button onClick={handleAddItem} disabled={!targetVariant} className="bg-emerald-600 text-white p-2 rounded text-sm font-bold disabled:opacity-50">Add</button>
+                <button onClick={handleAddItem} disabled={!targetVariant} className="bg-emerald-600 text-white p-2 rounded text-sm font-bold disabled:opacity-50">যোগ</button>
               </div>
             )}
           </div>
@@ -218,8 +218,8 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
             <thead className="bg-slate-100 text-slate-500 text-xs uppercase">
               <tr>
                 <th className="p-2">নাম</th>
-                <th className="p-2 w-20">Qty</th>
-                <th className="p-2 w-24">Rate</th>
+                <th className="p-2 w-20">পরিমাণ</th>
+                <th className="p-2 w-24">দর</th>
                 <th className="p-2 text-right">Total</th>
                 <th className="p-2 w-10"></th>
               </tr>
@@ -244,7 +244,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
               <span className="font-bold text-slate-800">৳{subTotal.toLocaleString()}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="font-bold text-slate-600">ছাড় (Discount):</span>
+              <span className="font-bold text-slate-600">ছাড়:</span>
               <input type="number" className="w-24 p-1 border rounded text-right font-bold text-red-600" value={editForm.discount} onChange={e => setEditForm(f => ({ ...f, discount: Number(e.target.value) }))} />
             </div>
             <div className="flex justify-between items-center border-t border-blue-200 pt-2">
@@ -252,7 +252,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
               <span className="font-bold text-xl text-blue-700">৳{(subTotal - editForm.discount).toLocaleString()}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="font-bold text-emerald-700">জমা (Paid):</span>
+              <span className="font-bold text-emerald-700">জমা:</span>
               <input type="number" className="w-24 p-1 border rounded text-right font-bold text-emerald-600" value={editForm.paidAmount} onChange={e => setEditForm(f => ({ ...f, paidAmount: Number(e.target.value) }))} />
             </div>
           </div>

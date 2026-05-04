@@ -62,7 +62,6 @@ export const SalesHistory: React.FC<SalesHistoryProps> = ({
     if (qty > item.quantityPieces) { notify('ফেরত পরিমাণ সঠিক নয়', 'error'); return; }
     onReturnItem(sale.id, itemIndex, qty);
     setReturnModal(EMPTY_RETURN);
-    notify('ফেরত সম্পন্ন হয়েছে', 'success');
   };
 
   const confirmDelete = () => {

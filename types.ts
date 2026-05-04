@@ -76,7 +76,7 @@ export interface Supplier {
 }
 
 // Inventory & Sales Types
-export type CalculationMode = 'tin_bundle' | 'running_foot' | 'fixed_piece';
+export type CalculationMode = 'tin_bundle' | 'running_foot' | 'fixed_piece' | 'manual';
 
 export interface ProductGroup {
   id: string;

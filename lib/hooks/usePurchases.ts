@@ -55,7 +55,7 @@ export function usePurchases({ notify, onInventoryUpdate, onExpensesUpdate, onSa
             await saveStockMovement(createStockMovementEntry({
               variantId: item.variantId,
               qtyChange: item.quantityPieces,
-              qtyAfter: 0,
+              qtyAfter: item.quantityPieces,
               costPerUnit: item.priceUnit,
               voucherType: 'purchase',
               voucherId: finalPurchase.id,
@@ -78,11 +78,11 @@ export function usePurchases({ notify, onInventoryUpdate, onExpensesUpdate, onSa
           if (purchasedItem) {
             const avgResult = recalcAvgCost({
               currentStock: variant.stockPieces,
-              currentAvgCost: variant.averageCost || 0,
+               currentAvgCost: variant.avgCostPrice || 0,
               incomingQty: purchasedItem.quantityPieces,
               incomingCostPerUnit: purchasedItem.priceUnit,
             });
-            return { ...variant, stockPieces: avgResult.newTotalStock, averageCost: avgResult.newAvgCost };
+             return { ...variant, stockPieces: avgResult.newTotalStock, avgCostPrice: avgResult.newAvgCost };
           }
           return variant;
         });

@@ -41,7 +41,7 @@ export function calculateLineItem(params: {
         qtyPieces: Math.round(quantity * ppb),
         finalPrice: Math.round(quantity * rate),
         formattedQty: `${quantity} বান`,
-        pricePerUnit: Math.round((rate / ppb) * 100) / 100,
+        pricePerUnit: Math.round(rate / ppb),
       };
     }
     // Selling pieces, rate is bundle rate
@@ -49,7 +49,7 @@ export function calculateLineItem(params: {
       qtyPieces: quantity,
       finalPrice: Math.round((quantity * rate) / ppb),
       formattedQty: `${quantity} পিস`,
-      pricePerUnit: Math.round((rate / ppb) * 100) / 100,
+      pricePerUnit: Math.round(rate / ppb),
     };
   }
 
@@ -59,7 +59,7 @@ export function calculateLineItem(params: {
       qtyPieces: quantity,
       finalPrice: Math.round(totalFeet * rate),
       formattedQty: `${quantity} pcs (${totalFeet} ft)`,
-      pricePerUnit: Math.round(variant.lengthFeet * rate * 100) / 100,
+      pricePerUnit: Math.round(variant.lengthFeet * rate),
     };
   }
 
@@ -99,20 +99,20 @@ export function calculateStockEntry(params: {
       : quantity;
     return {
       piecesToAdd,
-      costPerPiece: rate / ppb,
+      costPerPiece: Math.round(rate / ppb),
     };
   }
 
   if (groupType === 'running_foot') {
     return {
       piecesToAdd: quantity,
-      costPerPiece: rate * length,
+      costPerPiece: Math.round(rate * length),
     };
   }
 
   return {
     piecesToAdd: quantity,
-    costPerPiece: rate,
+    costPerPiece: Math.round(rate),
   };
 }
 
@@ -139,8 +139,8 @@ export function recalcAvgCost(params: {
   const newVal = incomingQty * incomingCostPerUnit;
   const newTotal = currentStock + incomingQty;
   const newAvg = newTotal > 0
-    ? Math.round(((oldVal + newVal) / newTotal) * 100) / 100
-    : Math.round(incomingCostPerUnit * 100) / 100;
+    ? Math.round((oldVal + newVal) / newTotal)
+    : Math.round(incomingCostPerUnit);
 
   return { newTotalStock: newTotal, newAvgCost: newAvg };
 }

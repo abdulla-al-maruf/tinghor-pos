@@ -12,7 +12,6 @@ interface POSProps {
   inventory: ProductGroup[];
   onCompleteSale: (sale: Sale) => void;
   settings: StoreSettings;
-  sales: Sale[]; 
 }
 
 export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings }) => {
@@ -183,8 +182,7 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
     }
 
     if (qtyPieces > targetVariant.stockPieces) {
-      notify(`স্টক নেই! আছে মাত্র ${targetVariant.stockPieces} পিস।`, 'error');
-      return;
+      notify('স্টক পর্যাপ্ত নেই — নেগেটিভ বিক্রয় হচ্ছে', 'info');
     }
 
     const thicknessStr = targetGroup.thickness && targetGroup.thickness !== 'N/A' && targetGroup.thickness !== 'Standard' ? targetGroup.thickness : '';
@@ -395,7 +393,7 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
                  <div className="flex-1 w-full">
                     <div className="flex items-center justify-between mb-2">
                        <span className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wide"><CheckCircle className="w-3 h-3" /> নির্বাচিত পণ্য</span>
-                       {!isManualMode && targetVariant && <span className="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-300">স্টক: <b className="text-white">{targetVariant.stockPieces}</b> pcs</span>}
+                       {!isManualMode && targetVariant && <span className="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-300">স্টক: <b className="text-white">{targetVariant.stockPieces}</b> পিস</span>}
                     </div>
                     
                     {isManualMode ? (
@@ -417,12 +415,12 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
                       <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">
                          {getPriceLabel()}
                       </label>
-                      <input type="number" className="w-full p-2.5 rounded-lg bg-slate-800 border border-slate-600 text-white font-bold text-sm outline-none focus:border-blue-500" placeholder="Rate" value={sellingRate} onChange={e => setSellingRate(e.target.value)} />
+                      <input type="number" className="w-full p-2.5 rounded-lg bg-slate-800 border border-slate-600 text-white font-bold text-sm outline-none focus:border-blue-500" placeholder="দর" value={sellingRate} onChange={e => setSellingRate(e.target.value)} />
                     </div>
 
                     <div className="w-32 shrink-0 relative">
                       <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">পরিমাণ (Pcs)</label>
-                      <input type="number" className="w-full p-2.5 rounded-lg bg-white text-slate-900 font-bold text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="Qty" value={quantity} onChange={e => setQuantity(e.target.value)} />
+                      <input type="number" className="w-full p-2.5 rounded-lg bg-white text-slate-900 font-bold text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="পরিমাণ" value={quantity} onChange={e => setQuantity(e.target.value)} />
                       {targetGroup?.type === 'tin_bundle' && (
                           <div className="absolute right-1 top-[22px] flex bg-slate-200 rounded p-0.5">
                              <button onClick={() => setUnitMode('bundle')} className={`px-1.5 py-0.5 text-[9px] font-bold rounded transition ${unitMode === 'bundle' ? 'bg-blue-600 text-white' : 'text-slate-500'}`}>বান</button>
@@ -482,7 +480,7 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
               <div><input type="text" className={inputStyle} value={customerAddress} onChange={e => setCustomerAddress(e.target.value)} placeholder="ঠিকানা..." /></div>
               
               <div className="grid grid-cols-2 gap-3">
-                 <div className="flex bg-slate-100 rounded-lg p-1"><button onClick={() => setDeliveryStatus('delivered')} className={`flex-1 py-1.5 text-[10px] font-bold rounded transition ${deliveryStatus === 'delivered' ? 'bg-white text-emerald-600 shadow' : 'text-slate-500'}`}>Delivered</button><button onClick={() => setDeliveryStatus('pending')} className={`flex-1 py-1.5 text-[10px] font-bold rounded transition ${deliveryStatus === 'pending' ? 'bg-white text-amber-600 shadow' : 'text-slate-500'}`}>Pending</button></div>
+                 <div className="flex bg-slate-100 rounded-lg p-1"><button onClick={() => setDeliveryStatus('delivered')} className={`flex-1 py-1.5 text-[10px] font-bold rounded transition ${deliveryStatus === 'delivered' ? 'bg-white text-emerald-600 shadow' : 'text-slate-500'}`}>ডেলিভারি</button><button onClick={() => setDeliveryStatus('pending')} className={`flex-1 py-1.5 text-[10px] font-bold rounded transition ${deliveryStatus === 'pending' ? 'bg-white text-amber-600 shadow' : 'text-slate-500'}`}>পেন্ডিং</button></div>
                  <div className="flex items-center gap-2 border-b border-slate-300 px-1"><span className="text-[10px] font-bold text-slate-500">ছাড়</span><input type="number" className="w-full text-right font-bold text-red-600 bg-transparent outline-none" value={discountAmount} onChange={e => setDiscountAmount(e.target.value)} placeholder="0" /></div>
               </div>
            </div>
