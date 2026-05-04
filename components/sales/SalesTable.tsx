@@ -10,11 +10,13 @@ interface SalesTableProps {
   onEdit: (sale: Sale) => void;
   onDelete: (sale: Sale) => void;
   onLoadMore: () => void;
+  currentUser?: { role: string };
 }
 
 export const SalesTable: React.FC<SalesTableProps> = ({
-  sales, totalFiltered, onView, onReturn, onEdit, onDelete, onLoadMore,
+  sales, totalFiltered, onView, onReturn, onEdit, onDelete, onLoadMore, currentUser,
 }) => {
+  const isAdmin = currentUser?.role === 'admin';
   return (
     <>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -60,9 +62,13 @@ export const SalesTable: React.FC<SalesTableProps> = ({
                   <td className="p-4 text-center">
                     <div className="flex justify-center gap-2">
                       <button onClick={() => onView(sale)} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100" title="View"><Eye className="w-4 h-4" /></button>
-                      <button onClick={() => onReturn(sale)} className="p-2 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100" title="Return"><RotateCcw className="w-4 h-4" /></button>
-                      <button onClick={() => onEdit(sale)} className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200" title="Edit"><Edit className="w-4 h-4" /></button>
-                      <button onClick={() => onDelete(sale)} className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                      {isAdmin && (
+                        <>
+                          <button onClick={() => onReturn(sale)} className="p-2 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100" title="Return"><RotateCcw className="w-4 h-4" /></button>
+                          <button onClick={() => onEdit(sale)} className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200" title="Edit"><Edit className="w-4 h-4" /></button>
+                          <button onClick={() => onDelete(sale)} className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

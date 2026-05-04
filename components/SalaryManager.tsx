@@ -1,8 +1,9 @@
 
-import React, { useState } from 'react';
-import { Employee, SalaryRecord, User } from '../types';
+import React, { useState, useContext } from 'react';
+import { Employee, SalaryRecord, User, Attendance } from '../types';
 import { User as UserIcon, Plus, Wallet, CheckCircle, Clock, Trash2, XCircle, CalendarCheck, Calendar as CalIcon, FileText, ChevronDown, ChevronUp, AlertCircle, ArrowLeft, ArrowRight } from 'lucide-react';
 import { generateId } from '../lib/utils';
+import { ToastContext } from '../lib/contexts';
 
 interface SalaryManagerProps {
   employees: Employee[];
@@ -10,8 +11,8 @@ interface SalaryManagerProps {
   onAddEmployee: (emp: Employee) => void;
   onAddRecord: (rec: SalaryRecord) => void;
   currentUser: User;
-  onUpdateAttendance: (rec: any) => void;
-  attendance: any[];
+  onUpdateAttendance: (rec: Attendance) => void;
+  attendance: Attendance[];
   onUpdateEmployee?: (emp: Employee) => void;
   onDeleteEmployee?: (id: string) => void;
 }
@@ -19,6 +20,7 @@ interface SalaryManagerProps {
 export const SalaryManager: React.FC<SalaryManagerProps> = ({ employees, salaryRecords, onAddEmployee, onAddRecord, onDeleteEmployee, onUpdateAttendance, attendance }) => {
   const [activeTab, setActiveTab] = useState<'payment' | 'attendance'>('payment');
   const [attendanceView, setAttendanceView] = useState<'daily' | 'monthly'>('daily');
+  const { notify } = useContext(ToastContext);
   
   // -- Common States --
   const [selectedEmpId, setSelectedEmpId] = useState<string | null>(null);
@@ -52,6 +54,7 @@ export const SalaryManager: React.FC<SalaryManagerProps> = ({ employees, salaryR
 
   const handleCreateEmployee = () => {
     if (!newEmpName || !newEmpBase) return;
+    if (Number(newEmpBase) <= 0) { notify('বৈধ বেস বেতন দিন', 'error'); return; }
     onAddEmployee({
       id: generateId(),
       name: newEmpName,
@@ -69,6 +72,7 @@ export const SalaryManager: React.FC<SalaryManagerProps> = ({ employees, salaryR
 
   const handlePayment = () => {
     if (!selectedEmpId || !payAmount) return;
+    if (Number(payAmount) <= 0) { notify('বৈধ পরিমাণ দিন', 'error'); return; }
     const emp = employees.find(e => e.id === selectedEmpId);
     if (!emp) return;
 
@@ -87,7 +91,7 @@ export const SalaryManager: React.FC<SalaryManagerProps> = ({ employees, salaryR
     });
     setPayAmount('');
     setPayNote('');
-    alert('পেমেন্ট সেভ হয়েছে!');
+    notify('পেমেন্ট সেভ হয়েছে', 'success');
   };
 
   const handleAttendanceMark = (empId: string, status: 'present' | 'absent' | 'late') => {

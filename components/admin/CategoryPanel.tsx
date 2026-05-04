@@ -8,6 +8,12 @@ interface CategoryPanelProps {
   notify: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
+interface CategoryItem {
+  id: string;
+  name: string;
+  isCustom?: boolean;
+}
+
 export const CategoryPanel: React.FC<CategoryPanelProps> = ({ settings, setSettings, notify }) => {
   const [activeCategoryId, setActiveCategoryId] = useState('brands');
   const [newItem, setNewItem] = useState('');
@@ -22,13 +28,13 @@ export const CategoryPanel: React.FC<CategoryPanelProps> = ({ settings, setSetti
   }>({ isOpen: false, type: 'item', value: '' });
   const [deleteInput, setDeleteInput] = useState('');
 
-  const coreCategories = [
+  const coreCategories: CategoryItem[] = [
     { id: 'brands', name: '১. ব্র্যান্ড' },
     { id: 'colors', name: '২. কালার লিস্ট' },
     { id: 'thicknesses', name: '৩. থিকনেস / সাইজ' },
     { id: 'productTypes', name: '৪. পণ্যের ধরন (Type)' },
   ];
-  const allCategories = [
+  const allCategories: CategoryItem[] = [
     ...coreCategories,
     ...(settings.customFields || []).map(f => ({ id: f.id, name: f.name, isCustom: true })),
   ];
@@ -174,7 +180,7 @@ export const CategoryPanel: React.FC<CategoryPanelProps> = ({ settings, setSetti
                 >
                   {cat.name}
                 </button>
-                {(cat as any).isCustom && (
+                {cat.isCustom && (
                   <button
                     onClick={() => { setDeleteInput(''); setConfirmDelete({ isOpen: true, type: 'category', categoryId: cat.id, value: cat.name }); }}
                     className="absolute right-2 top-3 text-slate-300 hover:text-red-500 bg-white p-1 rounded opacity-0 group-hover:opacity-100 transition"

@@ -3,6 +3,9 @@ export type Brand = string;
 export type Color = string; 
 
 export interface StoreSettings {
+  shopName: string;
+  shopPhone: string;
+  shopAddress: string;
   brands: string[];
   colors: string[];
   thicknesses: string[];
@@ -12,7 +15,7 @@ export interface StoreSettings {
 }
 
 // User & Auth Types
-export type UserRole = 'admin' | 'manager';
+export type UserRole = 'admin' | 'manager' | 'disabled';
 
 export interface UserSession {
   sessionId: string;
@@ -73,7 +76,7 @@ export interface Supplier {
 }
 
 // Inventory & Sales Types
-export type CalculationMode = 'tin_bundle' | 'running_foot' | 'fixed_piece';
+export type CalculationMode = 'tin_bundle' | 'running_foot' | 'fixed_piece' | 'manual';
 
 export interface ProductGroup {
   id: string;
@@ -88,11 +91,12 @@ export interface ProductGroup {
 
 export interface ProductVariant {
   id: string;
-  lengthFeet: number; 
-  calculationBase?: number; 
+  lengthFeet: number;
+  calculationBase?: number;
   stockPieces: number;
-  averageCost: number; 
-  sellingPrice?: number; 
+  reservedQty: number;
+  avgCostPrice: number;
+  sellingPrice?: number;
 }
 
 export interface StockLog {
@@ -115,6 +119,7 @@ export interface CartItem {
   formattedQty: string; 
   priceUnit: number; 
   buyPriceUnit: number; 
+  costPriceSnapshot?: number;
   subtotal: number;
   unitType: string; 
 }
@@ -170,11 +175,13 @@ export interface Expense {
   addedBy?: string;
 }
 
-export interface AiInsight {
-  type: 'stock' | 'market';
-  title: string;
-  content: string;
-  sources?: { title: string; uri: string }[];
+export interface Attendance {
+  id: string;
+  employeeId: string;
+  date: string; // YYYY-MM-DD
+  status: 'present' | 'absent' | 'half_day' | 'leave' | 'late';
+  note?: string;
+  timestamp?: number;
 }
 
 export type Language = 'bn' | 'en';

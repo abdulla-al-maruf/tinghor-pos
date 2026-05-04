@@ -4,9 +4,30 @@ import { ProductGroup, StoreSettings, CalculationMode, StockLog, ProductVariant,
 import { Plus, Trash2, ChevronDown, ChevronUp, Package, Search, Save, Eye, EyeOff } from 'lucide-react';
 import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
+import { recalcAvgCost } from '../lib/pricing';
+
+interface StockEntryInput {
+  length: number;
+  base: number;
+  buyPrice: number;
+  qtyInput: string;
+  qtyMode: 'bundle' | 'piece';
+}
+
+interface ProductGroupCardProps {
+  group: ProductGroup;
+  isExpanded: boolean;
+  onToggleExpand: (id: string | null) => void;
+  onDeleteGroup: (group: ProductGroup) => void;
+  onStockUpdate: (groupId: string, groupType: CalculationMode, stockEntry: StockEntryInput) => void;
+  inputStyle: string;
+  variantIndexByGroup?: Record<string, Record<number, ProductVariant>>;
+}
 
 interface InventoryProps {
   inventory: ProductGroup[];
+  inventoryById?: Record<string, ProductGroup>; // Optional indexed map for O(1) lookups
+  variantIndexByGroup?: Record<string, Record<number, ProductVariant>>; // Optional variant index
   setInventory: React.Dispatch<React.SetStateAction<ProductGroup[]>>;
   settings: StoreSettings;
   setSettings: React.Dispatch<React.SetStateAction<StoreSettings>>;
@@ -22,12 +43,13 @@ const ProductGroupCard = React.memo(({
   onToggleExpand, 
   onDeleteGroup, 
   onStockUpdate, 
-  inputStyle 
-}: any) => {
-  const [stockEntry, setStockEntry] = useState({
+  inputStyle,
+  variantIndexByGroup // Pass the variant index down
+}: ProductGroupCardProps) => {
+  const [stockEntry, setStockEntry] = useState<StockEntryInput>({
     length: 6,
     base: 72,
-    buyPrice: 0, 
+    buyPrice: 0,
     qtyInput: '',
     qtyMode: 'bundle'
   });
@@ -35,7 +57,11 @@ const ProductGroupCard = React.memo(({
 
   const getBundleDisplay = (g: ProductGroup, v: ProductVariant) => {
      if (g.type === 'tin_bundle' && v.calculationBase) {
-       return ((v.stockPieces * v.lengthFeet) / v.calculationBase).toFixed(2) + ' বান';
+       const pcsPerBan = v.calculationBase / v.lengthFeet;
+       const pcs = v.stockPieces;
+       const bundles = Math.floor(pcs / pcsPerBan);
+       const remainder = Math.round(pcs % pcsPerBan);
+       return bundles + ' বান ' + remainder + ' পিস';
      }
      return '-';
   };
@@ -102,12 +128,15 @@ const ProductGroupCard = React.memo(({
                       {commonSizes.map(s => (
                          <button 
                            key={s} 
-                           onClick={() => {
-                              const l = s;
-                              const variant = group.variants.find(v => v.lengthFeet === l);
-                              const base = variant?.calculationBase || (l > 12 ? 70 : (l === 7 || l === 10 ? 70 : 72));
-                              setStockEntry(p => ({...p, length: l, base}));
-                           }}
+                            onClick={() => {
+                               const l = s;
+                               // Use variant index for O(1) lookup if available
+                               const variant = variantIndexByGroup && variantIndexByGroup[group.id] 
+                                 ? variantIndexByGroup[group.id][l]
+                                 : group.variants.find((v: ProductVariant) => v.lengthFeet === l);
+                               const base = variant?.calculationBase || (l > 12 ? 70 : (l === 7 || l === 10 ? 70 : 72));
+                               setStockEntry(p => ({...p, length: l, base}));
+                            }}
                            className={`w-8 h-8 rounded text-xs font-bold border transition ${stockEntry.length === s ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
                          >
                             {s}
@@ -117,12 +146,15 @@ const ProductGroupCard = React.memo(({
                         type="number" 
                         className="w-12 h-8 p-1 text-xs font-bold border border-slate-200 rounded text-center focus:border-blue-500 outline-none" 
                         value={stockEntry.length} 
-                        onChange={e => {
-                           const l = Number(e.target.value);
-                           const variant = group.variants.find(v => v.lengthFeet === l);
-                           const base = variant?.calculationBase || (l > 12 ? 70 : (l === 7 || l === 10 ? 70 : 72));
-                           setStockEntry(p => ({...p, length: l, base}));
-                        }}
+                            onChange={e => {
+                               const l = Number(e.target.value);
+                               // Use variant index for O(1) lookup if available
+                               const variant = variantIndexByGroup && variantIndexByGroup[group.id]
+                                 ? variantIndexByGroup[group.id][l]
+                                 : group.variants.find((v: ProductVariant) => v.lengthFeet === l);
+                               const base = variant?.calculationBase || (l > 12 ? 70 : (l === 7 || l === 10 ? 70 : 72));
+                               setStockEntry(p => ({...p, length: l, base}));
+                            }}
                         placeholder=".."
                       />
                    </div>
@@ -183,17 +215,17 @@ const ProductGroupCard = React.memo(({
                 </tr>
               </thead>
               <tbody className="text-slate-700 text-sm divide-y divide-slate-50">
-                {group.variants.map((v: any) => (
+                {group.variants.map((v: ProductVariant) => (
                   <tr key={v.id} className="hover:bg-blue-50/50 transition">
                     <td className="p-3 font-bold">{v.lengthFeet}'</td>
                     {group.type === 'tin_bundle' && <td className="p-3 text-slate-400 text-xs">{v.calculationBase}</td>}
                     <td className="p-3 text-center">
-                       <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-bold text-xs">{v.stockPieces}</span>
+                        <span className={`px-2 py-0.5 rounded font-bold text-xs ${v.stockPieces < 0 ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>{v.stockPieces}</span>
                     </td>
-                    {group.type === 'tin_bundle' ? <td className="p-3 text-center text-slate-500 text-xs">{getBundleDisplay(group, v)}</td> : group.type === 'tin_bundle' ? null : <td className="p-3 text-center">-</td>}
+                    {group.type === 'tin_bundle' ? <td className="p-3 text-center text-slate-500 text-xs">{getBundleDisplay(group, v)}</td> : <td className="p-3 text-center">-</td>}
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {showCost[v.id] ? <span className="font-mono font-bold text-xs">৳{(v.averageCost || 0).toFixed(2)}</span> : <span className="text-slate-300 text-[10px]">Hidden</span>}
+                        {showCost[v.id] ? <span className="font-mono font-bold text-xs">৳{(v.avgCostPrice || 0).toFixed(2)}</span> : <span className="text-slate-300 text-[10px]">Hidden</span>}
                         <button onClick={() => setShowCost(p => ({...p, [v.id]: !p[v.id]}))} className="text-slate-300 hover:text-blue-500">
                           {showCost[v.id] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                         </button>
@@ -217,7 +249,15 @@ const ProductGroupCard = React.memo(({
   );
 });
 
-export const Inventory: React.FC<InventoryProps> = ({ inventory, setInventory, settings, onStockAdd, currentUser }) => {
+export const Inventory: React.FC<InventoryProps> = ({ 
+  inventory, 
+  inventoryById, 
+  variantIndexByGroup,
+  setInventory, 
+  settings, 
+  onStockAdd, 
+  currentUser 
+}) => {
   const { notify } = useContext(ToastContext);
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
@@ -260,12 +300,12 @@ export const Inventory: React.FC<InventoryProps> = ({ inventory, setInventory, s
       customValues: newGroup.customValues || {},
       variants: []
     };
-    setInventory(prev => [...prev, group]);
+     setInventory((prev: ProductGroup[]) => [...prev, group]);
     setIsCreatingGroup(false);
     notify("নতুন ক্যাটাগরি তৈরি হয়েছে", "success");
   };
 
-  const handleStockUpdate = (groupId: string, groupType: CalculationMode, stockEntry: any) => {
+  const handleStockUpdate = (groupId: string, groupType: CalculationMode, stockEntry: StockEntryInput) => {
     const qty = Number(stockEntry.qtyInput);
     const incomingRate = Number(stockEntry.buyPrice);
 
@@ -297,26 +337,41 @@ export const Inventory: React.FC<InventoryProps> = ({ inventory, setInventory, s
        incomingCostPerPiece = incomingRate;
     }
 
-    const group = inventory.find(g => g.id === groupId);
+    // Use indexed map for O(1) lookup if available
+    const group = inventoryById ? inventoryById[groupId] : inventory.find(g => g.id === groupId);
     if (!group) return;
 
-    const existingIndex = group.variants.findIndex(v => v.lengthFeet === length);
+    // Use variant index for O(1) lookup if available
+    let existingIndex = -1;
+    let existingVariant = null;
+    
+    if (variantIndexByGroup && variantIndexByGroup[groupId]) {
+      existingVariant = variantIndexByGroup[groupId][length];
+      if (existingVariant) {
+        existingIndex = group.variants.findIndex(v => v.id === existingVariant!.id);
+      }
+    } else {
+      // Fall back to O(n) search
+      existingIndex = group.variants.findIndex(v => v.lengthFeet === length);
+    }
     let updatedVariants = [...group.variants];
 
     if (existingIndex >= 0) {
       const currentStock = updatedVariants[existingIndex].stockPieces;
-      const currentAvgCost = updatedVariants[existingIndex].averageCost || 0;
-      
-      const totalCurrentValue = currentStock * currentAvgCost;
-      const totalIncomingValue = piecesToAdd * incomingCostPerPiece;
-      
-      const newTotalStock = currentStock + piecesToAdd;
-      const newAvgCost = newTotalStock > 0 ? (totalCurrentValue + totalIncomingValue) / newTotalStock : incomingCostPerPiece;
+      const currentAvgCost = updatedVariants[existingIndex].avgCostPrice || 0;
+      const avg = recalcAvgCost({
+        currentStock,
+        currentAvgCost,
+        incomingQty: piecesToAdd,
+        incomingCostPerUnit: incomingCostPerPiece,
+      });
+      const newTotalStock = avg.newTotalStock;
+      const newAvgCost = Math.round(avg.newAvgCost);
 
       updatedVariants[existingIndex] = {
         ...updatedVariants[existingIndex],
         stockPieces: newTotalStock,
-        averageCost: newAvgCost, 
+        avgCostPrice: newAvgCost,
         calculationBase: groupType === 'tin_bundle' ? base : undefined
       };
     } else {
@@ -325,7 +380,8 @@ export const Inventory: React.FC<InventoryProps> = ({ inventory, setInventory, s
         lengthFeet: length,
         calculationBase: groupType === 'tin_bundle' ? base : undefined,
         stockPieces: piecesToAdd,
-        averageCost: incomingCostPerPiece
+        reservedQty: 0,
+        avgCostPrice: Math.round(incomingCostPerPiece)
       });
     }
     updatedVariants.sort((a, b) => a.lengthFeet - b.lengthFeet);
@@ -355,7 +411,7 @@ export const Inventory: React.FC<InventoryProps> = ({ inventory, setInventory, s
 
   const executeDelete = () => {
     if (deleteModal.targetId) {
-      setInventory(prev => prev.filter(g => g.id !== deleteModal.targetId));
+       setInventory((prev: ProductGroup[]) => prev.filter(g => g.id !== deleteModal.targetId));
       notify("পেজ ডিলিট করা হয়েছে", "success");
     }
     setDeleteModal({ isOpen: false, targetId: null, targetName: '', typedName: '' });
@@ -408,15 +464,16 @@ export const Inventory: React.FC<InventoryProps> = ({ inventory, setInventory, s
 
       <div className="space-y-3">
         {filteredGroups.map(group => (
-           <ProductGroupCard 
-              key={group.id} 
-              group={group} 
-              isExpanded={editingGroupId === group.id} 
-              onToggleExpand={setEditingGroupId} 
-              onDeleteGroup={initiateDeleteGroup} 
-              onStockUpdate={handleStockUpdate} 
-              inputStyle={inputStyle} 
-           />
+            <ProductGroupCard 
+               key={group.id} 
+               group={group} 
+               isExpanded={editingGroupId === group.id} 
+               onToggleExpand={setEditingGroupId} 
+               onDeleteGroup={initiateDeleteGroup} 
+               onStockUpdate={handleStockUpdate} 
+               inputStyle={inputStyle}
+               variantIndexByGroup={variantIndexByGroup}
+            />
         ))}
       </div>
     </div>

@@ -1,13 +1,18 @@
 import React from 'react';
-import { Sale } from '../../types';
+import { Sale, StoreSettings } from '../../types';
 import { X, FileText, Printer } from 'lucide-react';
 
 interface InvoiceModalProps {
   sale: Sale;
+  settings?: StoreSettings;
   onClose: () => void;
 }
 
-export const InvoiceModal: React.FC<InvoiceModalProps> = ({ sale, onClose }) => {
+export const InvoiceModal: React.FC<InvoiceModalProps> = ({ sale, settings, onClose }) => {
+  const shopName = settings?.shopName || 'টিনঘর.কম';
+  const shopPhone = settings?.shopPhone || 'N/A';
+  const shopAddress = settings?.shopAddress || 'N/A';
+
   return (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4 overflow-y-auto">
       <div className="bg-white w-full max-w-2xl shadow-2xl rounded-xl overflow-hidden animate-fade-in relative print:w-full print:fixed print:inset-0 print:h-screen print:z-[200] print:rounded-none">
@@ -28,10 +33,9 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ sale, onClose }) => 
 
         <div className="p-8 print:p-0 bg-white" id="invoice-area">
           <div className="text-center border-b-2 border-slate-800 pb-6 mb-6">
-            <h1 className="text-3xl font-extrabold text-slate-900 mb-1">টিনঘর.কম</h1>
-            <p className="text-slate-500 text-sm font-medium">প্রোঃ মোঃ মালিক সাহেব</p>
-            <p className="text-slate-500 text-sm">ঠিকানা: বাজার রোড, সদর, জেলা</p>
-            <p className="text-slate-500 text-sm">মোবাইল: ০১৭১১-XXXXXX</p>
+            <h1 className="text-3xl font-extrabold text-slate-900 mb-1">{shopName}</h1>
+            <p className="text-slate-500 text-sm">ঠিকানা: {shopAddress}</p>
+            <p className="text-slate-500 text-sm">মোবাইল: {shopPhone}</p>
           </div>
 
           <div className="flex justify-between items-end mb-6 text-sm">

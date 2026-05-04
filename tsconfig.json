@@ -26,5 +26,12 @@
       ]
     },
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "sandbox",
+    ".kilo",
+    "supabase/functions"
+  ]
 }

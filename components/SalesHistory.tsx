@@ -12,15 +12,16 @@ interface SalesHistoryProps {
   sales: Sale[];
   onUpdateSale: (sale: Sale) => void;
   onDeleteSale: (saleId: string) => void;
+  onReturnItem: (saleId: string, itemIndex: number, returnQty: number) => void;
   inventory: ProductGroup[];
   setInventory: (inv: ProductGroup[]) => void;
   settings?: StoreSettings;
 }
 
-const EMPTY_RETURN: ReturnModalState = { isOpen: false, sale: null, itemIndex: null, returnQty: '', manualRefundAmount: '' };
+const EMPTY_RETURN: ReturnModalState = { isOpen: false, sale: null, itemIndex: null, returnQty: '' };
 
 export const SalesHistory: React.FC<SalesHistoryProps> = ({
-  sales, onUpdateSale, onDeleteSale, inventory, setInventory, settings,
+  sales, onUpdateSale, onDeleteSale, onReturnItem, inventory, setInventory, settings,
 }) => {
   const { notify } = useContext(ToastContext);
   const [searchTerm, setSearchTerm] = useState('');
@@ -51,46 +52,16 @@ export const SalesHistory: React.FC<SalesHistoryProps> = ({
   const displaySales = filteredSales.slice(0, displayLimit);
 
   const processReturn = () => {
-    const { sale, itemIndex, returnQty, manualRefundAmount } = returnModal;
-    if (!sale || itemIndex === null || !returnQty || !manualRefundAmount) {
+    const { sale, itemIndex, returnQty } = returnModal;
+    if (!sale || itemIndex === null || !returnQty) {
       notify('সব তথ্য দিন', 'error'); return;
     }
-    const item = sale.items[itemIndex];
     const qty = Number(returnQty);
-    const refund = Number(manualRefundAmount);
+    const item = sale.items[itemIndex];
+    if (qty <= 0) { notify('ফেরত পরিমাণ সঠিক নয়', 'error'); return; }
     if (qty > item.quantityPieces) { notify('ফেরত পরিমাণ সঠিক নয়', 'error'); return; }
-
-    if (item.groupId !== 'manual') {
-      setInventory(inventory.map(g =>
-        g.id !== item.groupId ? g : {
-          ...g,
-          variants: g.variants.map(v => v.id === item.variantId ? { ...v, stockPieces: v.stockPieces + qty } : v),
-        }
-      ));
-    }
-
-    const updatedItems = [...sale.items];
-    const newItemQty = item.quantityPieces - qty;
-    if (newItemQty === 0) {
-      updatedItems.splice(itemIndex, 1);
-    } else {
-      updatedItems[itemIndex] = { ...item, quantityPieces: newItemQty, subtotal: newItemQty * item.priceUnit, formattedQty: `${newItemQty} pcs (Returned ${qty})` };
-    }
-
-    const newSubTotal = updatedItems.reduce((sum, i) => sum + i.subtotal, 0);
-    const newFinal = newSubTotal - sale.discount;
-    onUpdateSale({
-      ...sale,
-      items: updatedItems,
-      subTotal: newSubTotal,
-      finalAmount: newFinal,
-      paidAmount: sale.paidAmount - refund,
-      dueAmount: newFinal - (sale.paidAmount - refund),
-      paymentHistory: [...(sale.paymentHistory || []), { amount: -refund, date: Date.now(), note: `Returned ${qty}x ${item.name}` }],
-      note: (sale.note || '') + ` | Return: ${qty}pcs`,
-    });
+    onReturnItem(sale.id, itemIndex, qty);
     setReturnModal(EMPTY_RETURN);
-    notify('ফেরত সম্পন্ন হয়েছে', 'success');
   };
 
   const confirmDelete = () => {
@@ -133,9 +104,7 @@ export const SalesHistory: React.FC<SalesHistoryProps> = ({
           onClose={() => setEditingSale(null)}
         />
       )}
-      {viewSale && (
-        <InvoiceModal sale={viewSale} onClose={() => setViewSale(null)} />
-      )}
+      {viewSale && (<InvoiceModal sale={viewSale} settings={settings} onClose={() => setViewSale(null)} />)}
 
       {/* Header + Filters */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
@@ -172,7 +141,7 @@ export const SalesHistory: React.FC<SalesHistoryProps> = ({
         sales={displaySales}
         totalFiltered={filteredSales.length}
         onView={setViewSale}
-        onReturn={sale => setReturnModal({ isOpen: true, sale, itemIndex: null, returnQty: '', manualRefundAmount: '' })}
+        onReturn={sale => setReturnModal({ isOpen: true, sale, itemIndex: null, returnQty: '' })}
         onEdit={setEditingSale}
         onDelete={sale => { setSaleToDelete(sale); setDeleteInput(''); }}
         onLoadMore={() => setDisplayLimit(prev => prev + 20)}

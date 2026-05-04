@@ -1,9 +1,10 @@
-
+﻿
 import React, { useState, useEffect, useContext } from 'react';
 import { ProductGroup, ProductVariant, CartItem, Purchase as PurchaseType, StoreSettings, Supplier } from '../types';
 import { ShoppingCart, CheckCircle, Trash, Layers, Tag, Calculator, User, FileText, Plus } from 'lucide-react';
 import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
+import { calculateLineItem, makeCartItem } from '../lib/pricing';
 
 interface PurchaseProps {
   inventory: ProductGroup[];
@@ -117,61 +118,25 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
 
     if (!targetGroup || !targetVariant) { notify('দয়া করে সব অপশন সিলেক্ট করুন', 'error'); return; }
 
-    let qtyPieces = 0;
-    let finalCost = 0;
-    let formattedQty = '';
-    let costPerPiece = 0;
+    // Use centralized pricing calculation (lib/pricing.ts)
+    const calc = calculateLineItem({
+      groupType: targetGroup.type,
+      variant: targetVariant,
+      quantity: qtyNum,
+      rate: rateNum,
+      unitMode,
+    });
 
-    // Logic Sync with POS
-    if (targetGroup.type === 'tin_bundle') {
-       const base = targetVariant.calculationBase || 72;
-       const length = targetVariant.lengthFeet;
-       const piecesPerBundle = base / length; 
-       
-       if (unitMode === 'bundle') {
-          qtyPieces = Math.round(qtyNum * piecesPerBundle);
-          finalCost = Math.round(qtyNum * rateNum);
-          formattedQty = `${qtyNum} বান`;
-          costPerPiece = Math.round((rateNum / piecesPerBundle) * 100) / 100;
-       } else {
-          qtyPieces = qtyNum;
-          const costPerOnePiece = Math.round((rateNum / piecesPerBundle) * 100) / 100;
-          finalCost = Math.round(qtyNum * costPerOnePiece);
-          formattedQty = `${qtyNum} পিস`;
-          costPerPiece = costPerOnePiece;
-       }
-    } else if (targetGroup.type === 'running_foot') {
-       // DHALA: Input Rate is PER FOOT
-       qtyPieces = qtyNum;
-       const totalFeet = qtyPieces * targetVariant.lengthFeet;
-       finalCost = Math.round(totalFeet * rateNum);
-       formattedQty = `${qtyPieces} pcs (${totalFeet} ft)`;
-       // Store Cost Per Piece for internal logic consistency
-       costPerPiece = Math.round(targetVariant.lengthFeet * rateNum * 100) / 100;
-    } else {
-       qtyPieces = qtyNum;
-       finalCost = Math.round(qtyPieces * rateNum);
-       formattedQty = `${qtyPieces} pcs`;
-       costPerPiece = rateNum;
-    }
-
-    const thicknessStr = targetGroup.thickness && targetGroup.thickness !== 'N/A' && targetGroup.thickness !== 'Standard' ? targetGroup.thickness : '';
-    const colorStr = targetGroup.color && targetGroup.color !== 'N/A' ? targetGroup.color : '';
-    const itemName = `${targetGroup.productType} | ${targetGroup.brand} | ${thicknessStr} ${colorStr} | ${targetVariant.lengthFeet}'`.replace(/\s+/g, ' ').trim();
-
-    setCart([...cart, {
+    const cartItem = makeCartItem({
       groupId: targetGroup.id,
       variantId: targetVariant.id,
-      name: itemName,
-      lengthFeet: targetVariant.lengthFeet,
-      calculationBase: targetVariant.calculationBase,
-      quantityPieces: qtyPieces,
-      subtotal: finalCost,
-      unitType: targetGroup.type === 'tin_bundle' ? unitMode : 'piece',
-      formattedQty: formattedQty,
-      priceUnit: costPerPiece,
-      buyPriceUnit: costPerPiece
-    }]);
+      group: targetGroup,
+      variant: targetVariant,
+      calc,
+      buyPriceUnit: calc.pricePerUnit,
+    });
+
+    setCart([...cart, cartItem]);
 
     setQuantity('');
     notify('ক্রয় তালিকায় যোগ হয়েছে', 'success');
@@ -206,7 +171,7 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
     }
 
     onCompletePurchase({
-      id: Date.now().toString(),
+      id: generateId(),
       invoiceId: vendorInvoiceNo || 'AUTO',
       supplierId: isNewSupplier && newSupplier ? newSupplier.id : selectedSupplierId,
       supplierName,
@@ -355,12 +320,12 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
                       <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">
                          {getPriceLabel()}
                       </label>
-                      <input type="number" className="w-full p-2.5 rounded-lg bg-slate-800 border border-slate-600 text-white font-bold text-sm outline-none" placeholder="Cost" value={costRate} onChange={e => setCostRate(e.target.value)} />
+                      <input type="number" className="w-full p-2.5 rounded-lg bg-slate-800 border border-slate-600 text-white font-bold text-sm outline-none" placeholder="মূল্য" value={costRate} onChange={e => setCostRate(e.target.value)} />
                     </div>
 
                     <div className="w-32 shrink-0 relative">
                       <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">পরিমাণ (Pcs)</label>
-                      <input type="number" className="w-full p-2.5 rounded-lg bg-white text-slate-900 font-bold text-sm outline-none" placeholder="Qty" value={quantity} onChange={e => setQuantity(e.target.value)} />
+                      <input type="number" className="w-full p-2.5 rounded-lg bg-white text-slate-900 font-bold text-sm outline-none" placeholder="পরিমাণ" value={quantity} onChange={e => setQuantity(e.target.value)} />
                       {targetGroup?.type === 'tin_bundle' && (
                           <div className="absolute right-1 top-[22px] flex bg-slate-200 rounded p-0.5">
                              <button onClick={() => setUnitMode('bundle')} className={`px-1.5 py-0.5 text-[9px] font-bold rounded transition ${unitMode === 'bundle' ? 'bg-orange-600 text-white' : 'text-slate-500'}`}>বান</button>
@@ -397,7 +362,7 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
                   </div>
                   <div className="flex justify-between items-center text-xs text-slate-500">
                      <span className="bg-slate-100 px-1.5 py-0.5 rounded">{item.formattedQty}</span>
-                     <span>Cost/Pc: ৳{item.priceUnit.toFixed(2)}</span>
+                     <span>মূল্য/পিস: ৳{item.priceUnit}</span>
                   </div>
                   <button onClick={() => removeFromCart(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition"><Trash className="w-3 h-3" /></button>
                </div>
@@ -434,7 +399,7 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
            
            <div className="mt-3 grid grid-cols-2 gap-3">
               <div><label className="text-[9px] font-bold text-emerald-600 uppercase block mb-1">নগদ প্রদান</label><input type="number" className="w-full p-2 rounded-lg border border-emerald-200 font-bold text-emerald-700 outline-none" value={paidAmount} onChange={e => setPaidAmount(e.target.value)} placeholder="0" /></div>
-              <div className="text-right flex flex-col justify-center"><span className="text-[9px] font-bold text-red-500 uppercase block">বাকি (Due)</span><span className="text-lg font-bold text-red-600 block">৳{(cartFinal - (Number(paidAmount)||0)).toLocaleString()}</span></div>
+              <div className="text-right flex flex-col justify-center"><span className="text-[9px] font-bold text-red-500 uppercase block">বাকি</span><span className="text-lg font-bold text-red-600 block">৳{(cartFinal - (Number(paidAmount)||0)).toLocaleString()}</span></div>
            </div>
 
            <button onClick={handleCheckout} disabled={cart.length === 0} className="w-full mt-4 bg-slate-800 text-white py-3 rounded-xl font-bold text-sm hover:bg-slate-900 shadow-xl transition flex justify-center gap-2 items-center disabled:bg-slate-300">
