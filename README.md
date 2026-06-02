@@ -52,9 +52,13 @@ Screenshots:
 
 ## Why This Project Matters
 
-Tinghor POS focuses on a niche but real business need in Bangladesh: tin and corrugated iron sheet sellers. Many existing POS tools are either too generic, expensive, or not designed for local workflows such as customer ledger, supplier purchases, Bengali interface, and inventory handling for building-material businesses.
+Tinghor POS focuses on a real local business need in Bangladesh: corrugated sheet / Dhew Tin sellers.
 
-This project is designed to become a reusable open-source foundation for small business POS systems in Bangladesh and similar markets.
+Many businesses in this industry still manage sales, stock, customer dues, purchases, and expenses manually or through generic software that does not match their workflow.
+
+This project is built from real industry understanding and aims to provide a Bengali-first, affordable, and open-source software foundation for local building-material businesses.
+
+The goal is to make POS, inventory, customer ledger, supplier tracking, and business reporting easier for small and niche businesses in Bangladesh.
 
 ## Current Status
 
