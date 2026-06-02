@@ -6,7 +6,7 @@ Many small and niche building-material businesses still manage sales, stock, cus
 
 ## Live Demo
 
-Demo: Coming soon
+Demo: https://tinghor-apr.netlify.app/
 Screenshots: 
 ## Screenshots
 
