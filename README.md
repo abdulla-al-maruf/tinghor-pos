@@ -7,7 +7,26 @@ Many small and niche building-material businesses still manage sales, stock, cus
 ## Live Demo
 
 Demo: Coming soon
-Screenshots: Coming soon
+Screenshots: 
+## Screenshots
+
+### Dashboard
+![Dashboard](./screenshots/dashboard.png)
+
+### POS Screen
+![POS Screen](./screenshots/pos-screen.png)
+
+### Inventory
+![Inventory](./screenshots/inventory.png)
+
+### Customer Ledger
+![Customer Ledger](./screenshots/customer-ledger.png)
+
+### Reports
+![Reports](./screenshots/reports.png)
+
+### Settings
+![Settings](./screenshots/settings.png)
 
 ## Key Features
 
