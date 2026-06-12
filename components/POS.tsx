@@ -282,6 +282,28 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
      return 'রেট (পিস)';
   };
 
+  // স্টক display: টিনে "X বান Y পিস", বাকিতে পিস
+  const formatStockLabel = (v: ProductVariant): string => {
+     if (targetGroup?.type === 'tin_bundle' && v.calculationBase && v.stockPieces >= 0) {
+        const ppb = v.calculationBase / v.lengthFeet;
+        if (ppb > 0) {
+           const ban = Math.floor(v.stockPieces / ppb);
+           const pcs = Math.round(v.stockPieces - ban * ppb);
+           return `${ban} বান ${pcs} পিস`;
+        }
+     }
+     return `${v.stockPieces} পিস`;
+  };
+
+  // Info only — হিসাবে কোনো প্রভাব নেই (মালিকের নিয়ম: সব দর বানে, round শুধু total-এ)
+  const perPieceInfo = useMemo(() => {
+     if (targetGroup?.type !== 'tin_bundle' || !targetVariant) return null;
+     const rate = Number(sellingRate);
+     if (!rate || rate <= 0) return null;
+     const base = targetVariant.calculationBase || 72;
+     return (rate / base) * targetVariant.lengthFeet;
+  }, [targetGroup, targetVariant, sellingRate]);
+
   // Compact Button Style
   const getBtnClass = (active: boolean) => `
     px-3 py-2 rounded-lg text-xs font-bold transition-all shadow-sm border whitespace-nowrap
@@ -362,19 +384,28 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 block">সাইজ / মাপ (ফুট)</label>
                   {availableSizes.length > 0 ? (
                     <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                       {availableSizes.map(s => (
-                         <button 
-                           key={s} 
-                           onClick={() => setSelSize(s)} 
-                           className={`h-10 rounded-lg text-sm font-bold border transition flex items-center justify-center shadow-sm 
-                             ${selSize === s 
-                               ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-200' 
-                               : 'bg-white text-slate-700 border-slate-200 hover:border-blue-400 hover:text-blue-600'
+                       {availableSizes.map(s => {
+                         const sv = targetGroup?.variants.find(v => v.lengthFeet === s);
+                         const stock = sv ? sv.stockPieces : 0;
+                         return (
+                         <button
+                           key={s}
+                           onClick={() => setSelSize(s)}
+                           className={`h-12 rounded-lg text-sm font-bold border transition flex flex-col items-center justify-center shadow-sm leading-tight
+                             ${selSize === s
+                               ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-200'
+                               : stock < 0
+                                 ? 'bg-red-50 text-red-600 border-red-200 hover:border-red-400'
+                                 : stock === 0
+                                   ? 'bg-slate-50 text-slate-400 border-slate-200 hover:border-blue-300'
+                                   : 'bg-white text-slate-700 border-slate-200 hover:border-blue-400 hover:text-blue-600'
                              }`}
                          >
-                           {s}'
+                           <span>{s}'</span>
+                           <span className={`text-[9px] font-semibold ${selSize === s ? 'text-blue-100' : stock < 0 ? 'text-red-500' : stock === 0 ? 'text-slate-300' : 'text-slate-400'}`}>{stock}</span>
                          </button>
-                       ))}
+                         );
+                       })}
                     </div>
                   ) : (
                     <div className="text-center py-2 text-xs text-red-400 font-bold">স্টক নেই</div>
@@ -393,7 +424,11 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
                  <div className="flex-1 w-full">
                     <div className="flex items-center justify-between mb-2">
                        <span className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wide"><CheckCircle className="w-3 h-3" /> নির্বাচিত পণ্য</span>
-                       {!isManualMode && targetVariant && <span className="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-300">স্টক: <b className="text-white">{targetVariant.stockPieces}</b> পিস</span>}
+                       {!isManualMode && targetVariant && (
+                          <span className={`text-xs px-2 py-0.5 rounded ${targetVariant.stockPieces < 0 ? 'bg-red-900/70 text-red-200' : 'bg-slate-800 text-slate-300'}`}>
+                             স্টক: <b className={targetVariant.stockPieces < 0 ? 'text-red-300' : 'text-white'}>{formatStockLabel(targetVariant)}</b>
+                          </span>
+                       )}
                     </div>
                     
                     {isManualMode ? (
@@ -411,11 +446,16 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
                  </div>
 
                  <div className="flex gap-3 w-full md:w-auto">
-                    <div className="w-24 shrink-0">
+                    <div className="w-24 shrink-0 relative">
                       <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">
                          {getPriceLabel()}
                       </label>
                       <input type="number" className="w-full p-2.5 rounded-lg bg-slate-800 border border-slate-600 text-white font-bold text-sm outline-none focus:border-blue-500" placeholder="দর" value={sellingRate} onChange={e => setSellingRate(e.target.value)} />
+                      {perPieceInfo !== null && (
+                         <div className="absolute mt-0.5 whitespace-nowrap text-[10px] font-bold text-emerald-400">
+                            প্রতি পিস ≈ ৳{perPieceInfo.toFixed(2)}
+                         </div>
+                      )}
                     </div>
 
                     <div className="w-32 shrink-0 relative">
