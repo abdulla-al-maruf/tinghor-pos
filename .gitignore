@@ -1,0 +1,38 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Sensitive local config
+.mcp.json
+.claude/
+.kilo/
+
+# Supabase temp files
+supabase/.temp/
+
+# Build artifacts
+*.tsbuildinfo
+
+# Sandbox copies
+sandbox/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
