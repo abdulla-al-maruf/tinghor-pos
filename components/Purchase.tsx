@@ -105,13 +105,14 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
   const availableSizes = targetGroup ? targetGroup.variants.map(v => v.lengthFeet).sort((a,b)=>a-b) : [];
   const targetVariant = targetGroup?.variants.find(v => v.lengthFeet === selSize);
 
-  // Auto-fill logic
+  // দর/পরিমাণ ditto-র জন্য persist — শুধু পণ্য (ব্র্যান্ড/মিলি/কালার/ধরন) বদলালে clear।
+  // ফলে একই মডেলের ৭/৮/৯ ফুট একই দরে দ্রুত তোলা যায় (কাগজের মেমোর মতো)।
   useEffect(() => {
-    if (targetVariant) {
-      setCostRate(''); // User enters new cost
-      setUnitMode('piece');
-    }
-  }, [targetVariant]);
+    setCostRate('');
+    setQuantity('');
+    setUnitMode('piece');
+    setSelSize(null);
+  }, [selProductType, selBrand, selThickness, selColor]);
 
   // --- ACTIONS ---
 
@@ -144,7 +145,8 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
 
     setCart([...cart, cartItem]);
 
-    setQuantity('');
+    // দর ও পরিমাণ রেখে দিই (ditto) — শুধু সাইজ clear, পরের সাইজ ট্যাপ করলেই রেডি
+    setSelSize(null);
     notify('ক্রয় তালিকায় যোগ হয়েছে', 'success');
   };
 
@@ -296,22 +298,29 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 block">সাইজ / মাপ (ফুট)</label>
                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                     {availableSizes.map(s => (
+                     {availableSizes.map(s => {
+                       const sv = targetGroup?.variants.find(v => v.lengthFeet === s);
+                       const stock = sv ? sv.stockPieces : 0;
+                       return (
                        <button
                          key={s}
                          onClick={() => setSelSize(s)}
-                         className={`h-10 rounded-lg text-sm font-bold border transition flex items-center justify-center shadow-sm
+                         className={`h-12 rounded-lg text-sm font-bold border transition flex flex-col items-center justify-center shadow-sm leading-tight
                            ${selSize === s
                              ? 'bg-orange-600 text-white border-orange-600 shadow-md ring-2 ring-orange-200'
-                             : 'bg-white text-slate-700 border-slate-200 hover:border-orange-400 hover:text-orange-600'
+                             : stock < 0
+                               ? 'bg-red-50 text-red-600 border-red-200 hover:border-red-400'
+                               : 'bg-white text-slate-700 border-slate-200 hover:border-orange-400 hover:text-orange-600'
                            }`}
                        >
-                         {s}'
+                         <span>{s}'</span>
+                         <span className={`text-[9px] font-semibold ${selSize === s ? 'text-orange-100' : stock < 0 ? 'text-red-500' : 'text-slate-400'}`}>{stock}</span>
                        </button>
-                     ))}
+                       );
+                     })}
                      <button
                        onClick={() => setAddingSize(true)}
-                       className="h-10 rounded-lg text-xs font-bold border border-dashed border-orange-300 text-orange-600 bg-orange-50 hover:bg-orange-100 transition flex items-center justify-center gap-1"
+                       className="h-12 rounded-lg text-xs font-bold border border-dashed border-orange-300 text-orange-600 bg-orange-50 hover:bg-orange-100 transition flex items-center justify-center gap-1"
                      >
                        <Plus className="w-3 h-3" /> সাইজ
                      </button>
