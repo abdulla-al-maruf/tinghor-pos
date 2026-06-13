@@ -296,6 +296,47 @@ export async function loadSales(): Promise<Sale[]> {
   }));
 }
 
+/**
+ * নতুন বিক্রি — সম্পূর্ণটা এক DB transaction-এ (RPC create_sale_atomic)।
+ * মেমো নম্বর, header, items, stock, জমা, log — সব একসাথে; অর্ধেক সেভ অসম্ভব।
+ * Returns the DB-assigned invoice number, sale id, timestamp.
+ */
+export async function createSaleAtomic(
+  sale: Sale,
+  userId: string,
+): Promise<{ id: string; invoiceId: string; timestamp: number }> {
+  const payload = {
+    customer_name: sale.customerName,
+    customer_phone: sale.customerPhone ?? '',
+    customer_address: sale.customerAddress ?? '',
+    sub_total: sale.subTotal,
+    discount: sale.discount,
+    final_amount: sale.finalAmount,
+    paid_amount: sale.paidAmount,
+    due_amount: sale.dueAmount,
+    delivery_status: sale.deliveryStatus,
+    sold_by: sale.soldBy,
+    user_id: userId,
+    note: sale.note ?? '',
+    items: sale.items.map(it => ({
+      group_id: it.groupId || 'manual',
+      variant_id: it.variantId || '',
+      name: it.name,
+      length_feet: it.lengthFeet ?? null,
+      calculation_base: it.calculationBase ?? null,
+      quantity_pieces: it.quantityPieces,
+      formatted_qty: it.formattedQty,
+      price_unit: it.priceUnit,
+      buy_price_unit: it.buyPriceUnit ?? 0,
+      subtotal: it.subtotal,
+      unit_type: it.unitType,
+    })),
+  };
+  const { data, error } = await supabase.rpc('create_sale_atomic', { payload });
+  if (error) throw new Error(`createSaleAtomic: ${error.message}`);
+  return { id: data.id, invoiceId: data.invoice_id, timestamp: data.timestamp };
+}
+
 export async function saveSale(sale: Sale): Promise<void> {
   const ts = sale.timestamp;
   const { error } = await supabase.from('sales').upsert({

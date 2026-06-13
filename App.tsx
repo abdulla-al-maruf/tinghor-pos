@@ -20,7 +20,7 @@ import {
   loadSettings, saveSettings,
   loadUsers, saveUsers,
   loadInventory, saveProductGroup,
-  loadSales, saveSale, deleteSale, saveSaleEditLog,
+  loadSales, saveSale, createSaleAtomic, deleteSale, saveSaleEditLog,
   loadPurchases, savePurchase,
   loadSuppliers, saveSupplier,
   loadExpenses, saveExpense, deleteExpense as dbDeleteExpense,
@@ -239,21 +239,24 @@ const App: React.FC = () => {
 
   const handleCompleteSale = useCallback(async (sale: Sale) => {
     try {
-      const newInvoiceId = (settings.nextInvoiceId).toString();
-      const saleWithMeta = { ...sale, invoiceId: newInvoiceId, soldBy: currentUser?.name || 'Unknown' };
+      const soldBy = currentUser?.name || 'Unknown';
+      // পুরো বিক্রি এক DB transaction-এ — মেমো নম্বর, header, items, stock, জমা, log একসাথে
+      const result = await createSaleAtomic({ ...sale, soldBy }, currentUser?.id ?? '');
 
-      await saveSale(saleWithMeta);
-      setSales(prevSales => [saleWithMeta, ...prevSales]);
+      const finalSale: Sale = {
+        ...sale,
+        id: result.id,
+        invoiceId: result.invoiceId,
+        soldBy,
+        timestamp: result.timestamp,
+        paymentHistory: sale.paidAmount > 0
+          ? [{ amount: sale.paidAmount, date: result.timestamp, note: 'বিক্রির সময় জমা' }]
+          : [],
+      };
 
-      const nextSettings = { ...settings, nextInvoiceId: settings.nextInvoiceId + 1 };
-      setSettings(nextSettings);
-      await saveSettings(nextSettings);
-
-      await saveActivityLog({
-        id: crypto.randomUUID(), userId: currentUser?.id ?? '', userName: currentUser?.name ?? 'Unknown',
-        action: `বিক্রয় INV-${newInvoiceId}`, details: `৳${sale.finalAmount}`, timestamp: Date.now(),
-      });
-
+      // শুধু local state sync — DB ইতিমধ্যে সব লিখে ফেলেছে
+      setSales(prevSales => [finalSale, ...prevSales]);
+      setSettings(prev => ({ ...prev, nextInvoiceId: Number(result.invoiceId) + 1 }));
       setInventory(prevInv => prevInv.map(group => {
         const relevantItems = sale.items.filter(i => i.groupId === group.id);
         if (relevantItems.length === 0) return group;
@@ -262,23 +265,19 @@ const App: React.FC = () => {
           variants: group.variants.map(variant => {
             const soldItem = relevantItems.find(item => item.variantId === variant.id);
             if (!soldItem) return variant;
-            dbAdjustVariantStock({
-              variantId: variant.id,
-              qtyDelta: -soldItem.quantityPieces,
-            }).catch(console.error);
             return { ...variant, stockPieces: variant.stockPieces - soldItem.quantityPieces };
           }),
         };
       }));
 
-      notify('মেমো সেভ হয়েছে', 'success');
-      return saleWithMeta;
+      notify('মেমো সেভ হয়েছে', 'success');
+      return finalSale;
     } catch (err) {
       console.error('handleCompleteSale failed:', err);
-      notify('মেমো সেভ করা যায়নি', 'error');
+      notify('মেমো সেভ করা যায়নি', 'error');
       return null;
     }
-  }, [currentUser, notify, settings]);
+  }, [currentUser, notify]);
 
   const handleCompletePurchase = useCallback(async (purchase: PurchaseType, newSupplier?: Supplier) => {
     try {
