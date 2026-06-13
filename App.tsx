@@ -1,20 +1,21 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { App as CapApp } from '@capacitor/app';
 import { LanguageContext, ToastContext } from './lib/contexts';
-import { Dashboard } from './components/Dashboard';
-import { Inventory } from './components/Inventory';
-import { POS } from './components/POS';
-import { Ledger } from './components/Ledger';
-import { Customers } from './components/Customers';
-import { Expenses } from './components/Expenses';
-import { Reports } from './components/Reports';
-import { SalaryManager } from './components/SalaryManager';
-import { ActivityLogs } from './components/ActivityLogs';
-import { AdminSettings } from './components/AdminSettings';
-import { SalesHistory } from './components/SalesHistory';
-import { Purchase } from './components/Purchase';
-import { SupplierManager } from './components/SupplierManager';
+// স্ক্রিনগুলো lazy-load — প্রথমবার শুধু login + shell নামে, বাকি screen খুললে তখন নামে (দ্রুত প্রথম লোড)
+const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
+const Inventory = lazy(() => import('./components/Inventory').then(m => ({ default: m.Inventory })));
+const POS = lazy(() => import('./components/POS').then(m => ({ default: m.POS })));
+const Ledger = lazy(() => import('./components/Ledger').then(m => ({ default: m.Ledger })));
+const Customers = lazy(() => import('./components/Customers').then(m => ({ default: m.Customers })));
+const Expenses = lazy(() => import('./components/Expenses').then(m => ({ default: m.Expenses })));
+const Reports = lazy(() => import('./components/Reports').then(m => ({ default: m.Reports })));
+const SalaryManager = lazy(() => import('./components/SalaryManager').then(m => ({ default: m.SalaryManager })));
+const ActivityLogs = lazy(() => import('./components/ActivityLogs').then(m => ({ default: m.ActivityLogs })));
+const AdminSettings = lazy(() => import('./components/AdminSettings').then(m => ({ default: m.AdminSettings })));
+const SalesHistory = lazy(() => import('./components/SalesHistory').then(m => ({ default: m.SalesHistory })));
+const Purchase = lazy(() => import('./components/Purchase').then(m => ({ default: m.Purchase })));
+const SupplierManager = lazy(() => import('./components/SupplierManager').then(m => ({ default: m.SupplierManager })));
 import { ProductGroup, Sale, Language, StoreSettings, Expense, User, ActivityLog, Employee, SalaryRecord, StockLog, ProductVariant, Supplier, Purchase as PurchaseType, Attendance } from './types';
 import {
   loadSettings, saveSettings,
@@ -687,6 +688,7 @@ const App: React.FC = () => {
           </div>
 
           <div className="max-w-[1600px] mx-auto">
+            <Suspense fallback={<div className="flex items-center justify-center py-20 text-slate-400 text-sm font-bangla">লোড হচ্ছে…</div>}>
              {activeTab === 'dashboard' && <MemoDashboard inventory={inventory} sales={sales} expenses={expenses} />}
              {activeTab === 'pos' && <MemoPOS inventory={inventory} sales={sales} onCompleteSale={handleCompleteSale} settings={settings} />}
              {activeTab === 'purchase' && <MemoPurchase inventory={inventory} suppliers={suppliers} onCompletePurchase={handleCompletePurchase} onAddVariant={handleAddVariant} settings={settings} />}
@@ -741,6 +743,7 @@ const App: React.FC = () => {
                 {activeTab === 'settings' && <MemoAdminSettings settings={settings} setSettings={setSettings} users={users} setUsers={setUsers} />}
                 </>
              )}
+            </Suspense>
           </div>
         </main>
       </div>
