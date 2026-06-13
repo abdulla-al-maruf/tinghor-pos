@@ -4,7 +4,7 @@ import { ProductGroup, StoreSettings, CalculationMode, StockLog, ProductVariant,
 import { Plus, Trash2, ChevronDown, ChevronUp, Package, Search, Save, Eye, EyeOff } from 'lucide-react';
 import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
-import { recalcAvgCost } from '../lib/pricing';
+import { recalcAvgCost, calculateStockEntry } from '../lib/pricing';
 
 interface StockEntryInput {
   length: number;
@@ -32,7 +32,7 @@ interface InventoryProps {
   settings: StoreSettings;
   setSettings: React.Dispatch<React.SetStateAction<StoreSettings>>;
   stockLogs?: StockLog[];
-  onStockAdd?: (groupId: string, updatedVariants: ProductVariant[], log: StockLog) => void;
+  onStockAdd?: (groupId: string, updatedVariants: ProductVariant[], log: StockLog, newGroup?: ProductGroup) => void;
   currentUser: User | null;
 }
 
@@ -275,6 +275,97 @@ export const Inventory: React.FC<InventoryProps> = ({
   // Ensure we can toggle correctly. Use a string ID or null.
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
 
+  // ── নতুন মাল wizard (এক স্ক্রিনে: ধরন→ব্র্যান্ড→...→সাইজ→পরিমাণ→দাম) ──
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wiz, setWiz] = useState({
+    productType: settings.productTypes[0] || 'ঢেউ টিন',
+    brand: '',
+    thickness: '',
+    color: '',
+    type: 'tin_bundle' as CalculationMode,
+    size: '',
+    base: '72',
+    qty: '',
+    qtyMode: 'bundle' as 'bundle' | 'piece',
+    buyPrice: '',
+  });
+  const setW = (patch: Partial<typeof wiz>) => setWiz(p => ({ ...p, ...patch }));
+
+  const handleWizardSave = (keepOpen: boolean) => {
+    const size = Number(wiz.size);
+    const qty = Number(wiz.qty);
+    const rate = Number(wiz.buyPrice);
+    if (!wiz.brand) { notify('ব্র্যান্ড দিন', 'error'); return; }
+    if (!size || size <= 0) { notify('সাইজ দিন', 'error'); return; }
+    if (!qty || qty <= 0) { notify('পরিমাণ দিন', 'error'); return; }
+    if (!rate || rate <= 0) { notify('ক্রয়মূল্য দিন', 'error'); return; }
+
+    const color = wiz.color || 'N/A';
+    const thickness = wiz.thickness || 'Standard';
+
+    // আগে থেকে একই group আছে কিনা (ধরন+ব্র্যান্ড+কালার+মিলি)
+    const existing = inventory.find(g =>
+      g.productType === wiz.productType && g.brand === wiz.brand &&
+      g.color === color && g.thickness === thickness
+    );
+    const groupType: CalculationMode = existing ? existing.type : wiz.type;
+    const base = groupType === 'tin_bundle' ? (Number(wiz.base) || 72) : 0;
+
+    const { piecesToAdd, costPerPiece } = calculateStockEntry({
+      groupType, quantity: qty, rate, length: size, base, qtyMode: wiz.qtyMode,
+    });
+
+    const groupId = existing ? existing.id : generateId();
+    const baseVariants = existing ? existing.variants : [];
+    const idx = baseVariants.findIndex(v => v.lengthFeet === size);
+    let updatedVariants: ProductVariant[];
+    let newLevel: number;
+
+    if (idx >= 0) {
+      const cur = baseVariants[idx];
+      const avg = recalcAvgCost({
+        currentStock: cur.stockPieces,
+        currentAvgCost: cur.avgCostPrice || 0,
+        incomingQty: piecesToAdd,
+        incomingCostPerUnit: costPerPiece,
+      });
+      newLevel = avg.newTotalStock;
+      updatedVariants = baseVariants.map((v, i) => i === idx
+        ? { ...v, stockPieces: avg.newTotalStock, avgCostPrice: avg.newAvgCost, calculationBase: groupType === 'tin_bundle' ? base : v.calculationBase }
+        : v);
+    } else {
+      newLevel = piecesToAdd;
+      updatedVariants = [...baseVariants, {
+        id: generateId(),
+        lengthFeet: size,
+        calculationBase: groupType === 'tin_bundle' ? base : undefined,
+        stockPieces: piecesToAdd,
+        reservedQty: 0,
+        avgCostPrice: costPerPiece,
+      }].sort((a, b) => a.lengthFeet - b.lengthFeet);
+    }
+
+    const newGroup: ProductGroup | undefined = existing ? undefined : {
+      id: groupId, productType: wiz.productType, brand: wiz.brand,
+      color, thickness, type: groupType, customValues: {}, variants: [],
+    };
+
+    const log: StockLog = {
+      id: generateId(), date: Date.now(),
+      productName: `${wiz.brand} ${thickness} ${color} (${size}')`,
+      quantityAdded: piecesToAdd, costPrice: rate, newStockLevel: newLevel, note: 'নতুন মাল',
+    };
+
+    onStockAdd?.(groupId, updatedVariants, log, newGroup);
+
+    if (keepOpen) {
+      // ধরন/ব্র্যান্ড/মিলি/কালার রেখে শুধু সাইজ-পরিমাণ-দাম ফাঁকা
+      setW({ size: '', qty: '', buyPrice: '' });
+    } else {
+      setWizardOpen(false);
+    }
+  };
+
   const filteredGroups = useMemo(() => {
     return inventory.filter(g => 
       g.productType?.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -440,25 +531,93 @@ export const Inventory: React.FC<InventoryProps> = ({
           <Search className="absolute left-3 top-3 text-slate-400 w-4 h-4" />
           <input type="text" placeholder="ব্র্যান্ড বা টাইপ খুঁজুন..." className="w-full pl-10 p-2.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         </div>
-        <button onClick={() => setIsCreatingGroup(true)} className="w-full md:w-auto bg-blue-600 text-white px-5 py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 text-sm shadow-md hover:bg-blue-700 transition">
-           <Plus className="w-4 h-4" /> নতুন পেজ
+        <button onClick={() => setWizardOpen(true)} className="w-full md:w-auto bg-blue-600 text-white px-5 py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 text-sm shadow-md hover:bg-blue-700 transition">
+           <Plus className="w-4 h-4" /> নতুন মাল
         </button>
       </div>
 
-      {isCreatingGroup && (
-        <div className="bg-white p-6 rounded-xl border border-blue-200 shadow-lg animate-fade-in relative">
-          <button onClick={() => setIsCreatingGroup(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><Trash2 className="w-5 h-5"/></button>
-          <h3 className="text-lg font-bold text-slate-800 mb-6">নতুন স্টক পেজ তৈরি</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-             <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">পণ্যের ধরন</label><select className={inputStyle} value={newGroup.productType} onChange={e => setNewGroup({...newGroup, productType: e.target.value})}>{settings.productTypes.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
-             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200"><label className="text-xs font-bold text-slate-500 uppercase mb-2 block">হিসাবের একক</label><div className="flex gap-2"><button onClick={() => setNewGroup({...newGroup, type: 'tin_bundle'})} className={`flex-1 py-2 rounded-lg font-bold text-xs transition ${newGroup.type === 'tin_bundle' ? 'bg-blue-600 text-white' : 'bg-white border'}`}>টিন (বান্ডিল)</button><button onClick={() => setNewGroup({...newGroup, type: 'running_foot'})} className={`flex-1 py-2 rounded-lg font-bold text-xs transition ${newGroup.type === 'running_foot' ? 'bg-blue-600 text-white' : 'bg-white border'}`}>ফুট / শিট</button><button onClick={() => setNewGroup({...newGroup, type: 'fixed_piece'})} className={`flex-1 py-2 rounded-lg font-bold text-xs transition ${newGroup.type === 'fixed_piece' ? 'bg-blue-600 text-white' : 'bg-white border'}`}>পিস</button></div></div>
+      {wizardOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[120] flex items-start md:items-center justify-center p-4 overflow-y-auto" onClick={() => setWizardOpen(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl my-8" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center p-4 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Package className="w-5 h-5 text-emerald-600" /> নতুন মাল তোলা</h3>
+              <button onClick={() => setWizardOpen(false)} className="text-slate-400 hover:text-slate-600"><Plus className="w-6 h-6 rotate-45" /></button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">পণ্যের ধরন</label>
+                  <select className={inputStyle} value={wiz.productType} onChange={e => setW({ productType: e.target.value })}>
+                    {settings.productTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">হিসাবের একক</label>
+                  <div className="flex gap-1">
+                    <button onClick={() => setW({ type: 'tin_bundle' })} className={`flex-1 py-2.5 rounded-lg font-bold text-[11px] ${wiz.type === 'tin_bundle' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'}`}>বান</button>
+                    <button onClick={() => setW({ type: 'running_foot' })} className={`flex-1 py-2.5 rounded-lg font-bold text-[11px] ${wiz.type === 'running_foot' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'}`}>ফুট</button>
+                    <button onClick={() => setW({ type: 'fixed_piece' })} className={`flex-1 py-2.5 rounded-lg font-bold text-[11px] ${wiz.type === 'fixed_piece' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'}`}>পিস</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">ব্র্যান্ড</label>
+                  <select className={inputStyle} value={wiz.brand} onChange={e => setW({ brand: e.target.value })}>
+                    <option value="">—</option>{settings.brands.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">মিলি</label>
+                  <select className={inputStyle} value={wiz.thickness} onChange={e => setW({ thickness: e.target.value })}>
+                    <option value="">—</option>{settings.thicknesses.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">কালার</label>
+                  <select className={inputStyle} value={wiz.color} onChange={e => setW({ color: e.target.value })}>
+                    <option value="">—</option>{settings.colors.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl p-3 grid grid-cols-2 gap-3 border border-slate-100">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">সাইজ (ফুট)</label>
+                  <input type="number" className={inputStyle} value={wiz.size} onChange={e => setW({ size: e.target.value })} placeholder="যেমন ৮" />
+                </div>
+                {wiz.type === 'tin_bundle' && (
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">বান বেস</label>
+                    <div className="flex gap-1">
+                      {['70', '72'].map(b => <button key={b} onClick={() => setW({ base: b })} className={`flex-1 py-2.5 rounded-lg text-xs font-bold ${wiz.base === b ? 'bg-slate-800 text-white' : 'bg-white border border-slate-200 text-slate-500'}`}>{b}</button>)}
+                    </div>
+                  </div>
+                )}
+                <div className="relative">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">পরিমাণ</label>
+                  <input type="number" className={inputStyle} value={wiz.qty} onChange={e => setW({ qty: e.target.value })} placeholder="0" />
+                  {wiz.type === 'tin_bundle' && (
+                    <div className="absolute right-1 top-[26px] flex bg-slate-200 rounded p-0.5">
+                      <button onClick={() => setW({ qtyMode: 'bundle' })} className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${wiz.qtyMode === 'bundle' ? 'bg-white shadow text-blue-600' : 'text-slate-400'}`}>বান</button>
+                      <button onClick={() => setW({ qtyMode: 'piece' })} className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${wiz.qtyMode === 'piece' ? 'bg-white shadow text-blue-600' : 'text-slate-400'}`}>পিস</button>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">
+                    {wiz.type === 'tin_bundle' ? 'ক্রয়মূল্য (বান)' : wiz.type === 'running_foot' ? 'ক্রয়মূল্য (ফুট)' : 'ক্রয়মূল্য (পিস)'}
+                  </label>
+                  <input type="number" className={inputStyle} value={wiz.buyPrice} onChange={e => setW({ buyPrice: e.target.value })} placeholder="0" />
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2 p-4 border-t border-slate-100">
+              <button onClick={() => handleWizardSave(true)} className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition text-sm">সেভ করে আরেকটা</button>
+              <button onClick={() => handleWizardSave(false)} className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition text-sm">সেভ ও বন্ধ</button>
+            </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-             <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">ব্র্যান্ড</label><select className={inputStyle} value={newGroup.brand} onChange={e => setNewGroup({...newGroup, brand: e.target.value})}><option value="">সিলেক্ট করুন</option>{settings.brands.map(b => <option key={b} value={b}>{b}</option>)}</select></div>
-             <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">কালার</label><select className={inputStyle} value={newGroup.color} onChange={e => setNewGroup({...newGroup, color: e.target.value})}><option value="">সিলেক্ট করুন</option>{settings.colors.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-             <div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">থিকনেস</label><select className={inputStyle} value={newGroup.thickness} onChange={e => setNewGroup({...newGroup, thickness: e.target.value})}><option value="">সিলেক্ট করুন</option>{settings.thicknesses.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
-          </div>
-          <button onClick={handleCreateGroup} className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-900 transition">পেজ তৈরি করুন</button>
         </div>
       )}
 

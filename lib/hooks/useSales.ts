@@ -22,7 +22,7 @@ interface UseSalesDeps {
 interface UseSalesReturn {
   sales: Sale[];
   setSales: React.Dispatch<React.SetStateAction<Sale[]>>;
-  handleCompleteSale: (sale: Sale) => Promise<void>;
+  handleCompleteSale: (sale: Sale) => Promise<Sale | null>;
   handleUpdateSale: (updatedSale: Sale) => void;
   handleDeleteSale: (saleId: string) => void;
   handleReturnItem: (saleId: string, itemIndex: number, returnQty: number) => void;
@@ -41,7 +41,7 @@ export function useSales({ settings, currentUser, notify }: UseSalesDeps): UseSa
     } catch (err) {
       notify('বিক্রি সেভ হয়নি — আবার চেষ্টা করুন', 'error');
       console.error('saveSale failed:', err);
-      return;
+      return null;
     }
 
     // Step 2: Reserve stock in DB
@@ -90,6 +90,7 @@ export function useSales({ settings, currentUser, notify }: UseSalesDeps): UseSa
     }).catch(console.error);
 
     notify('মেমো সেভ হয়েছে', 'success');
+    return saleWithMeta;
   }, [currentUser, notify, settings]);
 
   const handleUpdateSale = useCallback((updatedSale: Sale) => {

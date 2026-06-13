@@ -10,10 +10,11 @@ interface PurchaseProps {
   inventory: ProductGroup[];
   suppliers: Supplier[];
   onCompletePurchase: (purchase: PurchaseType, newSupplier?: Supplier) => void;
+  onAddVariant?: (groupId: string, variant: ProductVariant) => void;
   settings: StoreSettings;
 }
 
-export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onCompletePurchase, settings }) => {
+export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onCompletePurchase, onAddVariant, settings }) => {
   const { notify } = useContext(ToastContext);
   
   // -- State Initialization --
@@ -42,6 +43,11 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
   const [paidAmount, setPaidAmount] = useState<string>('');
   const [discountAmount, setDiscountAmount] = useState<string>('');
   const [purchaseNote, setPurchaseNote] = useState('');
+
+  // নতুন সাইজ যোগ (inline)
+  const [addingSize, setAddingSize] = useState(false);
+  const [newSizeFt, setNewSizeFt] = useState('');
+  const [newSizeBase, setNewSizeBase] = useState('72');
 
   // Initial Selection Logic
   useEffect(() => {
@@ -196,6 +202,25 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
   const cartTotal = cart.reduce((sum, item) => sum + item.subtotal, 0);
   const cartFinal = cartTotal - (Number(discountAmount)||0);
 
+  const handleAddNewSize = () => {
+    const ft = Number(newSizeFt);
+    if (!ft || ft <= 0) { notify('সাইজ (ফুট) লিখুন', 'error'); return; }
+    if (!targetGroup) { notify('আগে ব্র্যান্ড/কালার বাছুন', 'error'); return; }
+    if (targetGroup.variants.some(v => v.lengthFeet === ft)) { notify('এই সাইজ আগেই আছে', 'error'); setSelSize(ft); setAddingSize(false); return; }
+    const variant: ProductVariant = {
+      id: generateId(),
+      lengthFeet: ft,
+      calculationBase: targetGroup.type === 'tin_bundle' ? Number(newSizeBase) || 72 : undefined,
+      stockPieces: 0,
+      reservedQty: 0,
+      avgCostPrice: 0,
+    };
+    onAddVariant?.(targetGroup.id, variant);
+    setSelSize(ft);
+    setNewSizeFt('');
+    setAddingSize(false);
+  };
+
   const getPriceLabel = () => {
      if (targetGroup?.type === 'tin_bundle') return 'ক্রয় মূল্য (বান)';
      if (targetGroup?.type === 'running_foot') return 'ক্রয় মূল্য (প্রতি ফুট)';
@@ -267,27 +292,50 @@ export const Purchase: React.FC<PurchaseProps> = ({ inventory, suppliers, onComp
                </div>
              )}
 
-             {((availableThicknesses.length === 0 || selThickness) && (availableColors.length === 0 || selColor) && selBrand) && (
+             {((availableThicknesses.length === 0 || selThickness) && (availableColors.length === 0 || selColor) && selBrand && targetGroup) && (
                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 block">সাইজ / মাপ (ফুট)</label>
-                  {availableSizes.length > 0 ? (
-                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                       {availableSizes.map(s => (
-                         <button 
-                           key={s} 
-                           onClick={() => setSelSize(s)} 
-                           className={`h-10 rounded-lg text-sm font-bold border transition flex items-center justify-center shadow-sm 
-                             ${selSize === s 
-                               ? 'bg-orange-600 text-white border-orange-600 shadow-md ring-2 ring-orange-200' 
-                               : 'bg-white text-slate-700 border-slate-200 hover:border-orange-400 hover:text-orange-600'
-                             }`}
-                         >
-                           {s}'
-                         </button>
-                       ))}
+                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                     {availableSizes.map(s => (
+                       <button
+                         key={s}
+                         onClick={() => setSelSize(s)}
+                         className={`h-10 rounded-lg text-sm font-bold border transition flex items-center justify-center shadow-sm
+                           ${selSize === s
+                             ? 'bg-orange-600 text-white border-orange-600 shadow-md ring-2 ring-orange-200'
+                             : 'bg-white text-slate-700 border-slate-200 hover:border-orange-400 hover:text-orange-600'
+                           }`}
+                       >
+                         {s}'
+                       </button>
+                     ))}
+                     <button
+                       onClick={() => setAddingSize(true)}
+                       className="h-10 rounded-lg text-xs font-bold border border-dashed border-orange-300 text-orange-600 bg-orange-50 hover:bg-orange-100 transition flex items-center justify-center gap-1"
+                     >
+                       <Plus className="w-3 h-3" /> সাইজ
+                     </button>
+                  </div>
+
+                  {addingSize && (
+                    <div className="mt-3 p-3 bg-white rounded-lg border border-orange-200 flex flex-wrap items-end gap-2">
+                       <div>
+                          <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">নতুন সাইজ (ফুট)</label>
+                          <input type="number" autoFocus className="w-20 p-2 text-sm border border-slate-300 rounded-lg outline-none focus:border-orange-500" value={newSizeFt} onChange={e => setNewSizeFt(e.target.value)} placeholder="যেমন ১১" />
+                       </div>
+                       {targetGroup.type === 'tin_bundle' && (
+                          <div>
+                             <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">বান বেস</label>
+                             <div className="flex gap-1">
+                                {['70','72'].map(b => (
+                                   <button key={b} onClick={() => setNewSizeBase(b)} className={`px-3 py-2 rounded-lg text-xs font-bold border ${newSizeBase === b ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}>{b}</button>
+                                ))}
+                             </div>
+                          </div>
+                       )}
+                       <button onClick={handleAddNewSize} className="px-4 py-2 bg-orange-600 text-white rounded-lg text-xs font-bold h-[36px]">যোগ</button>
+                       <button onClick={() => { setAddingSize(false); setNewSizeFt(''); }} className="px-3 py-2 bg-slate-100 text-slate-500 rounded-lg text-xs font-bold h-[36px]">বাতিল</button>
                     </div>
-                  ) : (
-                    <div className="text-center py-2 text-xs text-red-400 font-bold">ইনভেন্টরিতে পণ্য নেই</div>
                   )}
                </div>
              )}

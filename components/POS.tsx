@@ -5,16 +5,18 @@ import { ShoppingCart, CheckCircle, Trash, Layers, Tag, Calculator, User, Phone,
 import { ToastContext } from '../lib/contexts';
 import { generateId } from '../lib/utils';
 import { parseLocalStorageCart, saveToLocalStorageCart } from '../lib/validation';
+import { InvoiceModal } from './sales/InvoiceModal';
 
 const MANUAL_PRODUCT_TYPE_ID = 'manual';
 
 interface POSProps {
   inventory: ProductGroup[];
-  onCompleteSale: (sale: Sale) => void;
+  sales: Sale[];
+  onCompleteSale: (sale: Sale) => Promise<Sale | null>;
   settings: StoreSettings;
 }
 
-export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings }) => {
+export const POS: React.FC<POSProps> = ({ inventory, sales, onCompleteSale, settings }) => {
   const { notify } = useContext(ToastContext);
   
   // Run migration on component mount to handle any corrupted data
@@ -58,6 +60,10 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
   // New: Profit Visibility Toggle
   const [showProfit, setShowProfit] = useState(false);
 
+  // বিক্রি শেষে মেমো popup
+  const [completedSale, setCompletedSale] = useState<Sale | null>(null);
+  const [nameFocus, setNameFocus] = useState(false);
+
   // --- Effects ---
   useEffect(() => {
     const timer = setInterval(() => {
@@ -97,6 +103,42 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
   useEffect(() => {
      if(cartFinal > 0 && !paidAmount) setPaidAmount(cartFinal.toString());
   }, [cartFinal]);
+
+  // ── কাস্টমার চেনা: শুধু ফোন নম্বরে (মালিকের নিয়ম — নাম মিললেই same লোক না) ──
+  const knownCustomers = useMemo(() => {
+    const map = new Map<string, { name: string; phone: string; address: string; due: number }>();
+    for (const s of sales) {
+      const ph = (s.customerPhone || '').trim();
+      if (!ph || ph === 'N/A' || ph.length < 6) continue;
+      const cur = map.get(ph) || { name: s.customerName, phone: ph, address: s.customerAddress || '', due: 0 };
+      cur.due += s.dueAmount;
+      if (!cur.address && s.customerAddress) cur.address = s.customerAddress;
+      map.set(ph, cur);
+    }
+    return map;
+  }, [sales]);
+
+  const matchedCustomer = useMemo(() => {
+    const ph = customerPhone.trim();
+    if (ph.length < 11) return null;
+    return knownCustomers.get(ph) || null;
+  }, [customerPhone, knownCustomers]);
+
+  const nameSuggestions = useMemo(() => {
+    const q = customerName.trim().toLowerCase();
+    if (q.length < 2) return [] as { name: string; phone: string; address: string; due: number }[];
+    return [...knownCustomers.values()]
+      .filter(c => c.name.toLowerCase().includes(q) && c.phone !== customerPhone.trim())
+      .slice(0, 5);
+  }, [customerName, customerPhone, knownCustomers]);
+
+  // ফোন মিললে ফাঁকা ঘরগুলো auto-fill (লেখা থাকলে ছোঁবো না)
+  useEffect(() => {
+    if (matchedCustomer) {
+      if (!customerName.trim()) setCustomerName(matchedCustomer.name);
+      if (!customerAddress.trim() && matchedCustomer.address) setCustomerAddress(matchedCustomer.address);
+    }
+  }, [matchedCustomer]);
 
   const isManualMode = selProductType === MANUAL_PRODUCT_TYPE_ID || selProductType === 'অন্যান্য';
 
@@ -213,7 +255,7 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
     setCart(newCart);
   };
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (cart.length === 0) { notify('কার্ট খালি!', 'error'); return; }
     if (!customerName) { notify('কাস্টমারের নাম লিখুন (আবশ্যক)', 'error'); return; }
     if (due > 0 && (!customerPhone || customerPhone.length < 11)) { notify('বাকি থাকলে মোবাইল নাম্বার অবশ্যই দিতে হবে', 'error'); return; }
@@ -224,7 +266,7 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
     const paid = Number(paidAmount) || 0;
     const currentDue = final - paid;
 
-    onCompleteSale({
+    const saved = await onCompleteSale({
       id: generateId(),
       invoiceId: 'PENDING',
       customerName,
@@ -243,6 +285,9 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
       note: saleNote
     });
 
+    if (!saved) return; // সেভ ব্যর্থ — কার্ট রেখে দিলাম, আবার চেষ্টা করা যাবে
+
+    setCompletedSale(saved);
     localStorage.removeItem('pos_draft_cart');
     localStorage.removeItem('pos_draft_name');
     localStorage.removeItem('pos_draft_phone');
@@ -513,11 +558,34 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
         <div className="bg-white p-5 rounded-2xl shadow-xl border border-slate-200">
            <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
-                 <div><label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">নাম <span className="text-red-500">*</span></label><input type="text" className={inputStyle} value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="নাম" /></div>
+                 <div className="relative"><label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">নাম <span className="text-red-500">*</span></label><input type="text" className={inputStyle} value={customerName} onChange={e => setCustomerName(e.target.value)} onFocus={() => setNameFocus(true)} onBlur={() => setTimeout(() => setNameFocus(false), 200)} placeholder="নাম" />
+                    {nameFocus && nameSuggestions.length > 0 && (
+                       <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-30 overflow-hidden">
+                          {nameSuggestions.map(c => (
+                             <button key={c.phone} type="button" onMouseDown={() => { setCustomerName(c.name); setCustomerPhone(c.phone); setCustomerAddress(c.address); }} className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-50 last:border-0">
+                                <span className="text-xs font-bold text-slate-700">{c.name}</span>
+                                <span className="text-[10px] text-slate-400 block">{c.phone}{c.address ? ' — ' + c.address : ''}{c.due > 0 ? ' — বাকি ৳' + c.due.toLocaleString() : ''}</span>
+                             </button>
+                          ))}
+                       </div>
+                    )}
+                 </div>
                  <div><label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">মোবাইল</label><input type="text" className={`${inputStyle} ${due > 0 && !customerPhone ? 'border-red-300 bg-red-50' : ''}`} value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="017..." /></div>
               </div>
               
               <div><input type="text" className={inputStyle} value={customerAddress} onChange={e => setCustomerAddress(e.target.value)} placeholder="ঠিকানা..." /></div>
+
+              {matchedCustomer && (
+                 matchedCustomer.due > 0 ? (
+                    <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-xs font-bold">
+                       ⚠ এই নম্বরের আগের বাকি: ৳{matchedCustomer.due.toLocaleString()}
+                    </div>
+                 ) : (
+                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg px-3 py-2 text-xs font-bold">
+                       ✓ পুরোনো কাস্টমার — কোনো বাকি নেই
+                    </div>
+                 )
+              )}
               
               <div className="grid grid-cols-2 gap-3">
                  <div className="flex bg-slate-100 rounded-lg p-1"><button onClick={() => setDeliveryStatus('delivered')} className={`flex-1 py-1.5 text-[10px] font-bold rounded transition ${deliveryStatus === 'delivered' ? 'bg-white text-emerald-600 shadow' : 'text-slate-500'}`}>ডেলিভারি</button><button onClick={() => setDeliveryStatus('pending')} className={`flex-1 py-1.5 text-[10px] font-bold rounded transition ${deliveryStatus === 'pending' ? 'bg-white text-amber-600 shadow' : 'text-slate-500'}`}>পেন্ডিং</button></div>
@@ -554,6 +622,10 @@ export const POS: React.FC<POSProps> = ({ inventory, onCompleteSale, settings })
            <button onClick={handleCheckout} disabled={cart.length === 0} className="w-full mt-4 bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition flex justify-center gap-2 items-center disabled:bg-slate-300 text-sm"><CheckCircle className="w-4 h-4" /> কনফার্ম করুন</button>
         </div>
       </div>
+
+      {completedSale && (
+         <InvoiceModal sale={completedSale} settings={settings} onClose={() => setCompletedSale(null)} />
+      )}
     </div>
   );
 };

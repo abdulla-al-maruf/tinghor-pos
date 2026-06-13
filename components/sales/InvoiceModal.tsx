@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
+import html2canvas from 'html2canvas';
 import { Sale, StoreSettings } from '../../types';
-import { X, FileText, Printer } from 'lucide-react';
+import { X, FileText, Printer, Share2 } from 'lucide-react';
 
 interface InvoiceModalProps {
   sale: Sale;
@@ -12,6 +13,34 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ sale, settings, onCl
   const shopName = settings?.shopName || 'টিনঘর.কম';
   const shopPhone = settings?.shopPhone || 'N/A';
   const shopAddress = settings?.shopAddress || 'N/A';
+  const [sharing, setSharing] = useState(false);
+
+  // মেমোকে ছবি বানিয়ে WhatsApp/share — printer নেই, ফোনই ভরসা
+  const shareAsImage = async () => {
+    const el = document.getElementById('invoice-area');
+    if (!el) return;
+    setSharing(true);
+    try {
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+      const blob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(b => (b ? resolve(b) : reject(new Error('image failed'))), 'image/png'),
+      );
+      const file = new File([blob], `memo-${sale.invoiceId}.png`, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: `মেমো #${sale.invoiceId}` });
+      } else {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = file.name;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+    } catch (err) {
+      // user cancelled share — fine
+      console.error('shareAsImage:', err);
+    }
+    setSharing(false);
+  };
 
   return (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4 overflow-y-auto">
@@ -22,6 +51,9 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ sale, settings, onCl
             <FileText className="w-5 h-5" /> মেমো প্রিভিউ
           </h3>
           <div className="flex gap-2">
+            <button onClick={shareAsImage} disabled={sharing} className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-emerald-700 disabled:bg-slate-300">
+              <Share2 className="w-4 h-4" /> {sharing ? 'তৈরি হচ্ছে…' : 'WhatsApp/শেয়ার'}
+            </button>
             <button onClick={() => window.print()} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700">
               <Printer className="w-4 h-4" /> প্রিন্ট
             </button>

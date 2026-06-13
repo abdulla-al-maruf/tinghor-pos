@@ -272,9 +272,11 @@ const App: React.FC = () => {
       }));
 
       notify('মেমো সেভ হয়েছে', 'success');
+      return saleWithMeta;
     } catch (err) {
       console.error('handleCompleteSale failed:', err);
       notify('মেমো সেভ করা যায়নি', 'error');
+      return null;
     }
   }, [currentUser, notify, settings]);
 
@@ -472,17 +474,42 @@ const App: React.FC = () => {
     }
   }, [sales, currentUser, notify]);
 
-  const handleStockEntry = useCallback(async (groupId: string, updatedVariants: ProductVariant[], log: StockLog) => {
+  const handleStockEntry = useCallback(async (groupId: string, updatedVariants: ProductVariant[], log: StockLog, newGroup?: ProductGroup) => {
     try {
-      const updated = inventory.map(g => g.id === groupId ? { ...g, variants: updatedVariants } : g);
+      const exists = inventory.some(g => g.id === groupId);
+      const updated = exists
+        ? inventory.map(g => g.id === groupId ? { ...g, variants: updatedVariants } : g)
+        : newGroup
+          ? [...inventory, { ...newGroup, variants: updatedVariants }]
+          : inventory;
       const updatedG = updated.find(g => g.id === groupId);
-      if (updatedG) await saveProductGroup(updatedG);
+      if (!updatedG) throw new Error('group not found');
+      await saveProductGroup(updatedG);
       setInventory(updated);
       setStockLogs(prev => [log, ...prev]);
       notify('স্টক যোগ হয়েছে', 'success');
     } catch (err) {
       console.error('handleStockEntry failed:', err);
       notify('স্টক যোগ করা যায়নি', 'error');
+    }
+  }, [inventory, notify]);
+
+  // Purchase tab: add a new size (variant) inline — starts at 0 stock, purchase will fill it
+  const handleAddVariant = useCallback(async (groupId: string, variant: ProductVariant) => {
+    const group = inventory.find(g => g.id === groupId);
+    if (!group) { notify('পণ্য পাওয়া যায়নি', 'error'); return; }
+    if (group.variants.some(v => v.lengthFeet === variant.lengthFeet)) {
+      notify('এই সাইজ আগেই আছে', 'error');
+      return;
+    }
+    const updatedG = { ...group, variants: [...group.variants, variant].sort((a, b) => a.lengthFeet - b.lengthFeet) };
+    try {
+      await saveProductGroup(updatedG);
+      setInventory(prev => prev.map(g => g.id === groupId ? updatedG : g));
+      notify('নতুন সাইজ যোগ হয়েছে', 'success');
+    } catch (err) {
+      console.error('handleAddVariant failed:', err);
+      notify('সাইজ যোগ করা যায়নি', 'error');
     }
   }, [inventory, notify]);
 
@@ -664,8 +691,8 @@ const App: React.FC = () => {
 
           <div className="max-w-[1600px] mx-auto">
              {activeTab === 'dashboard' && <MemoDashboard inventory={inventory} sales={sales} expenses={expenses} />}
-             {activeTab === 'pos' && <MemoPOS inventory={inventory} onCompleteSale={handleCompleteSale} settings={settings} />}
-             {activeTab === 'purchase' && <MemoPurchase inventory={inventory} suppliers={suppliers} onCompletePurchase={handleCompletePurchase} settings={settings} />}
+             {activeTab === 'pos' && <MemoPOS inventory={inventory} sales={sales} onCompleteSale={handleCompleteSale} settings={settings} />}
+             {activeTab === 'purchase' && <MemoPurchase inventory={inventory} suppliers={suppliers} onCompletePurchase={handleCompletePurchase} onAddVariant={handleAddVariant} settings={settings} />}
               {activeTab === 'history' && <MemoSalesHistory sales={sales} onUpdateSale={handleUpdateSale} onDeleteSale={handleDeleteSale} onReturnItem={handleReturnItem} inventory={inventory} setInventory={handleInventoryUpdate} settings={settings} />}
              {activeTab === 'inventory' && <MemoInventory inventory={inventory} setInventory={setInventory} settings={settings} setSettings={setSettings} stockLogs={stockLogs} onStockAdd={handleStockEntry} currentUser={currentUser} />}
              {activeTab === 'ledger' && <MemoLedger sales={sales} onUpdateSale={handleUpdateSale} onAddNewSale={handleCompleteSale} onReturnItem={handleReturnItem} />}
