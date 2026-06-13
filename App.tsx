@@ -74,8 +74,6 @@ const translations: Record<string, Record<string, string>> = {
   appName: { en: 'Tinghor.com', bn: 'টিনঘর' },
 };
 
-const LOGO_URL = "https://tinghor.com/wp-content/uploads/2023/11/tinghor-logo-150x150.png";
-
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -569,7 +567,7 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-bangla">
         {toasts.map(t => (<div key={t.id} className={`fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg text-white font-bold flex gap-2 ${t.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`}>{t.msg}</div>))}
         <div className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl text-center">
-           <img src={LOGO_URL} alt="Logo" className="w-20 h-20 mx-auto mb-6 object-contain" />
+           <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-200"><Building2 className="w-10 h-10 text-white" /></div>
            <h1 className="text-2xl font-bold text-slate-800 mb-2">টিনঘর.কম</h1>
            <div className="space-y-4 text-left">
               <div><label className="text-xs font-bold text-slate-400">ID/Email</label><input className="w-full p-3 border rounded-lg" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} /></div>
@@ -623,7 +621,7 @@ const App: React.FC = () => {
         } ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-64'}`}>
 
           <div className={`h-16 flex items-center border-b border-slate-100 ${isSidebarCollapsed ? 'justify-center' : 'justify-between px-6'}`}>
-            {!isSidebarCollapsed ? <img src={LOGO_URL} alt="Logo" className="h-8 w-auto object-contain" /> : <div className="font-bold text-blue-600 text-xl">TG</div>}
+            {!isSidebarCollapsed ? <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center"><Building2 className="w-5 h-5 text-white" /></div><span className="font-bold text-blue-700 text-lg">টিনঘর</span></div> : <div className="font-bold text-blue-600 text-xl">TG</div>}
             <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden text-slate-400"><X className="w-5 h-5" /></button>
           </div>
 
@@ -681,7 +679,7 @@ const App: React.FC = () => {
           <div className="lg:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow-sm border border-slate-100">
             <div className="flex items-center gap-3">
               <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 bg-slate-50 rounded-lg"><Menu className="w-5 h-5 text-slate-600" /></button>
-              <img src={LOGO_URL} alt="Logo" className="h-6 w-auto" />
+              <div className="flex items-center gap-1.5"><div className="w-6 h-6 rounded bg-blue-600 flex items-center justify-center"><Building2 className="w-4 h-4 text-white" /></div><span className="font-bold text-blue-700">টিনঘর</span></div>
             </div>
             <button onClick={() => setLang(l => l === 'en' ? 'bn' : 'en')} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-slate-50 text-xs font-bold">
               <Languages className="w-4 h-4 text-blue-600" /> {lang === 'en' ? 'EN' : 'BN'}
