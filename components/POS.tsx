@@ -340,6 +340,35 @@ export const POS: React.FC<POSProps> = ({ inventory, sales, onCompleteSale, sett
      return `${v.stockPieces} পিস`;
   };
 
+  // সাম্প্রতিক বিক্রি — রোজকার মাল এক ট্যাপে (গতি বাড়ায়)
+  const recentProducts = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { groupId: string; variantId: string; productType: string; brand: string; thickness: string; color: string; size: number; label: string }[] = [];
+    const sorted = [...sales].sort((a, b) => b.timestamp - a.timestamp);
+    for (const s of sorted) {
+      for (const it of s.items) {
+        if (!it.variantId || it.groupId === 'manual' || seen.has(it.variantId)) continue;
+        const g = inventory.find(x => x.id === it.groupId);
+        const v = g?.variants.find(x => x.id === it.variantId);
+        if (!g || !v) continue;
+        seen.add(it.variantId);
+        const th = g.thickness && g.thickness !== 'Standard' && g.thickness !== 'N/A' ? g.thickness : '';
+        out.push({ groupId: g.id, variantId: v.id, productType: g.productType, brand: g.brand, thickness: g.thickness, color: g.color, size: v.lengthFeet, label: `${g.brand} ${th} ${v.lengthFeet}'`.replace(/\s+/g, ' ').trim() });
+        if (out.length >= 8) return out;
+      }
+    }
+    return out;
+  }, [sales, inventory]);
+
+  const jumpToProduct = (p: { productType: string; brand: string; thickness: string; color: string; size: number }) => {
+    setSelProductType(p.productType);
+    setSelBrand(p.brand);
+    setSelThickness(p.thickness);
+    setSelColor(p.color);
+    setSelSize(p.size);
+    setManualName('');
+  };
+
   // Info only — হিসাবে কোনো প্রভাব নেই (মালিকের নিয়ম: সব দর বানে, round শুধু total-এ)
   const perPieceInfo = useMemo(() => {
      if (targetGroup?.type !== 'tin_bundle' || !targetVariant) return null;
@@ -363,7 +392,25 @@ export const POS: React.FC<POSProps> = ({ inventory, sales, onCompleteSale, sett
   return (
     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 h-full font-bangla">
       <div className="xl:col-span-7 flex flex-col gap-4">
-        
+
+        {/* RECENT PRODUCTS — দ্রুত নির্বাচন */}
+        {recentProducts.length > 0 && (
+          <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">সাম্প্রতিক বিক্রি — এক ট্যাপে</div>
+            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+              {recentProducts.map(p => (
+                <button
+                  key={p.variantId}
+                  onClick={() => jumpToProduct(p)}
+                  className="flex-none px-3 py-2 rounded-lg bg-blue-50 text-blue-700 border border-blue-100 text-xs font-bold hover:bg-blue-100 hover:border-blue-300 transition whitespace-nowrap"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* PRODUCT SELECTION PANEL */}
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 relative">
           <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
